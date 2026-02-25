@@ -175,7 +175,14 @@ export default function InstagramStoryBuilder() {
       .then((data) => {
         setStoryData(data);
         setLoading(false);
-        addLog(`Loaded story: "${data['Headline']}"`);
+        // Save headline to localStorage immediately so auto-poller
+        // won't re-detect the current story as "new" and send it
+        const hl = data['Headline'] || '';
+        if (hl) {
+          localStorage.setItem('hitam-ai-last-headline', hl);
+          setLastSentHeadline(hl);
+        }
+        addLog(`Loaded story: "${hl}"`);
       })
       .catch((err) => {
         setError(err.message);
@@ -1169,6 +1176,11 @@ export default function InstagramStoryBuilder() {
 
           // Wait for canvas to finish rendering
           await new Promise((r) => setTimeout(r, 3000));
+
+          // Mark as sent BEFORE sending — prevents duplicate sends
+          // if the next poll fires while this send is still in progress
+          localStorage.setItem('hitam-ai-last-headline', headline);
+          setLastSentHeadline(headline);
 
           addLog('Auto-sending to Telegram…');
           await sendToTelegram(latest, img, crop, theme);

@@ -6,10 +6,7 @@ import { Player } from '@remotion/player';
 import { AnimatedStory } from './components/AnimatedStory';
 import { renderAnimatedFrame } from './utils/renderAnimatedFrame';
 import { sendPhoto, sendVideo, sendPoll } from './utils/telegram';
-
-// Replace this with your published Google Sheets CSV link
-const GOOGLE_SHEETS_CSV_URL =
-  'https://docs.google.com/spreadsheets/d/e/2PACX-1vRtDSB1S74HHrypW_cogBnPX51sdHluVtF_eSOqPGslCVUEo-o9k5P2zvNeu4pKjImju_YwaMiCJp9t/pub?gid=0&single=true&output=csv';
+import { GOOGLE_SHEETS_CSV_URL } from './utils/constants';
 
 // ═══════════════════════════════════════════════════════
 //  GOOGLE FONTS — loaded via FontFace API (zero CSS needed)
@@ -359,16 +356,31 @@ export default function InstagramStoryBuilder() {
       ctx.fillStyle = fullOverlay;
       ctx.fillRect(0, 0, W, H);
 
-      // ── 3. FILM GRAIN / NOISE TEXTURE ──
-      const grainData = ctx.getImageData(0, 0, W, H);
-      const pixels = grainData.data;
-      for (let i = 0; i < pixels.length; i += 16) {
-        const noise = (Math.random() - 0.5) * 18;
-        pixels[i] += noise;
-        pixels[i + 1] += noise;
-        pixels[i + 2] += noise;
+      // ── 3. FILM GRAIN — fast noise overlay (no pixel loop) ──
+      {
+        const noiseCanvas = document.createElement('canvas');
+        noiseCanvas.width = 270;  // small tile, tiled across
+        noiseCanvas.height = 480;
+        const nCtx = noiseCanvas.getContext('2d');
+        const noiseImg = nCtx.createImageData(270, 480);
+        const nd = noiseImg.data;
+        for (let i = 0; i < nd.length; i += 4) {
+          const v = Math.random() * 255;
+          nd[i] = v;
+          nd[i + 1] = v;
+          nd[i + 2] = v;
+          nd[i + 3] = 255;
+        }
+        nCtx.putImageData(noiseImg, 0, 0);
+
+        ctx.save();
+        ctx.globalAlpha = 0.04;
+        ctx.globalCompositeOperation = 'overlay';
+        const pat = ctx.createPattern(noiseCanvas, 'repeat');
+        ctx.fillStyle = pat;
+        ctx.fillRect(0, 0, W, H);
+        ctx.restore();
       }
-      ctx.putImageData(grainData, 0, 0);
 
       // ── HELPERS ──
       const setShadow = (blur = 8, alpha = 0.6) => {

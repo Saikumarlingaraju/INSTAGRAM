@@ -6,7 +6,7 @@
   "crons": [
     {
       "path": "/api/auto-send",
-      "schedule": "35 2 * * *"
+      "schedule": "45 2 * * *"
     }
   ]
 }

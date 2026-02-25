@@ -1,26 +1,38 @@
 // ═══════════════════════════════════════════════════════════════
 //  Vercel Serverless Cron — Auto-Send to Telegram
 //
-//  Runs daily at 8:05 AM IST (2:35 AM UTC) via Vercel Cron.
+//  Runs daily at 8:15 AM IST (2:45 AM UTC) via Vercel Cron.
 //  Fetches the latest row from Google Sheets, sends the
 //  Flux-generated image + caption + poll to Telegram.
 //
-//  No browser needed — runs fully server-side.
+//  Secrets: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, CRON_SECRET
+//  (set in Vercel Dashboard → Settings → Environment Variables)
 // ═══════════════════════════════════════════════════════════════
-
-const BOT_TOKEN = '8019167536:AAF_Bv_kwH75FEa-QXGKhs3j-DsQeDxKZ9s';
-const CHAT_ID = '-5226724951';
-const API = `https://api.telegram.org/bot${BOT_TOKEN}`;
 
 const GOOGLE_SHEETS_CSV_URL =
   'https://docs.google.com/spreadsheets/d/e/2PACX-1vRtDSB1S74HHrypW_cogBnPX51sdHluVtF_eSOqPGslCVUEo-o9k5P2zvNeu4pKjImju_YwaMiCJp9t/pub?gid=0&single=true&output=csv';
 
-// ── Simple CSV parser (no external dependency needed) ──
+// ── Read secrets from env ──
+function getConfig() {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+
+  if (!token || !chatId) {
+    throw new Error('Missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID env vars');
+  }
+
+  return {
+    token,
+    chatId,
+    api: `https://api.telegram.org/bot${token}`,
+  };
+}
+
+// ── Simple CSV parser ──
 function parseCSV(csvText) {
   const lines = csvText.split('\n').filter((l) => l.trim());
   if (lines.length < 2) return [];
 
-  // Parse header
   const headers = parseCSVLine(lines[0]);
   const rows = [];
 
@@ -66,24 +78,43 @@ function parseCSVLine(line) {
   return result;
 }
 
-// ── Telegram API helpers (server-side, using fetch) ──
-async function sendPhotoByUrl(imageUrl, caption) {
-  const res = await fetch(`${API}/sendPhoto`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      chat_id: CHAT_ID,
-      photo: imageUrl,
-      caption,
-      parse_mode: 'Markdown',
-    }),
-  });
-  const data = await res.json();
-  if (!data.ok) throw new Error(`sendPhoto failed: ${data.description}`);
-  return data;
+// ── Retry with exponential backoff ──
+async function withRetry(fn, label = 'call', maxRetries = 3) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const isLast = attempt === maxRetries;
+      const isRateLimit = err.message?.includes('429');
+      const delay = isRateLimit ? 5000 * attempt : 1000 * Math.pow(2, attempt - 1);
+
+      if (isLast) throw err;
+      console.warn(`⚠ ${label} attempt ${attempt}/${maxRetries} failed: ${err.message}. Retrying in ${delay}ms…`);
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
 }
 
-async function sendPoll(question, optionsStr) {
+// ── Telegram API helpers ──
+async function sendPhotoByUrl(api, chatId, imageUrl, caption) {
+  return withRetry(async () => {
+    const res = await fetch(`${api}/sendPhoto`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        photo: imageUrl,
+        caption,
+        parse_mode: 'Markdown',
+      }),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(`sendPhoto failed: ${data.description}`);
+    return data;
+  }, 'sendPhoto');
+}
+
+async function sendPoll(api, chatId, question, optionsStr) {
   const options = optionsStr
     .split('|')
     .map((o) => o.trim())
@@ -95,50 +126,62 @@ async function sendPoll(question, optionsStr) {
     return null;
   }
 
-  const res = await fetch(`${API}/sendPoll`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      chat_id: CHAT_ID,
-      question,
-      options: options.map((text) => ({ text })),
-      is_anonymous: false,
-    }),
-  });
-  const data = await res.json();
-  if (!data.ok) throw new Error(`sendPoll failed: ${data.description}`);
-  return data;
+  return withRetry(async () => {
+    const res = await fetch(`${api}/sendPoll`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        question,
+        options: options.map((text) => ({ text })),
+        is_anonymous: false,
+      }),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(`sendPoll failed: ${data.description}`);
+    return data;
+  }, 'sendPoll');
 }
 
-async function sendMessage(text) {
-  const res = await fetch(`${API}/sendMessage`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      chat_id: CHAT_ID,
-      text,
-      parse_mode: 'Markdown',
-    }),
-  });
-  const data = await res.json();
-  if (!data.ok) throw new Error(`sendMessage failed: ${data.description}`);
-  return data;
+async function sendMessage(api, chatId, text) {
+  return withRetry(async () => {
+    const res = await fetch(`${api}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text,
+        parse_mode: 'Markdown',
+      }),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(`sendMessage failed: ${data.description}`);
+    return data;
+  }, 'sendMessage');
 }
 
-// ── Dedup: check last bot message in chat to avoid duplicate sends ──
-async function getLastBotMessage() {
+// ── Dedup: check recent bot messages for this headline ──
+async function wasAlreadySent(api, chatId, headline) {
   try {
-    // Use getUpdates to see recent outgoing messages isn't reliable,
-    // so we'll send a "check" by getting chat info.
-    // Instead, we'll use a simpler approach: just check if there's
-    // a recent message from the bot with the same headline.
+    // Use getUpdates with a small limit to check recent outgoing messages
+    const res = await fetch(`${api}/getUpdates?limit=20&allowed_updates=["channel_post","message"]`);
+    const data = await res.json();
 
-    // Telegram doesn't easily let bots read group history.
-    // So we'll use a different approach: store last headline
-    // in a pinned message or just accept one send per cron run.
-    return null;
+    if (!data.ok || !data.result) return false;
+
+    // Check if any recent message/caption contains this headline
+    for (const update of data.result) {
+      const msg = update.message || update.channel_post;
+      if (!msg) continue;
+      const text = msg.text || msg.caption || '';
+      if (text.includes(headline)) {
+        return true;
+      }
+    }
+    return false;
   } catch {
-    return null;
+    // If dedup check fails, proceed with send (better to duplicate than miss)
+    return false;
   }
 }
 
@@ -146,13 +189,18 @@ async function getLastBotMessage() {
 //  MAIN HANDLER
 // ═══════════════════════════════════════════════════════════
 export default async function handler(req, res) {
-  // Verify cron secret (Vercel sets this header for cron jobs)
-  // For manual testing, also allow direct access
-  const isCron = req.headers['authorization'] === `Bearer ${process.env.CRON_SECRET}`;
-  const isManual = req.method === 'GET';
+  // ── Authentication ──
+  // Vercel Cron sends: Authorization: Bearer <CRON_SECRET>
+  // Manual trigger requires: ?secret=<CRON_SECRET>
+  const cronSecret = process.env.CRON_SECRET;
+  const isCron = req.headers['authorization'] === `Bearer ${cronSecret}`;
+  const isManualAuth = cronSecret && req.query?.secret === cronSecret;
 
-  if (!isCron && !isManual) {
-    return res.status(401).json({ error: 'Unauthorized' });
+  if (!isCron && !isManualAuth) {
+    return res.status(401).json({
+      error: 'Unauthorized',
+      hint: 'Cron jobs are authenticated automatically. For manual trigger, use ?secret=YOUR_CRON_SECRET',
+    });
   }
 
   const log = [];
@@ -166,6 +214,13 @@ export default async function handler(req, res) {
     log.push(`[${time}] ${msg}`);
     console.log(`[${time}] ${msg}`);
   };
+
+  let cfg;
+  try {
+    cfg = getConfig();
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
 
   try {
     // 1. Fetch latest row from Google Sheets
@@ -195,23 +250,30 @@ export default async function handler(req, res) {
       return res.status(200).json({ status: 'empty_headline', log });
     }
 
-    // 2. Send image with caption
+    // 2. Dedup check — was this headline already sent?
+    addLog('Checking for duplicates…');
+    const alreadySent = await wasAlreadySent(cfg.api, cfg.chatId, headline);
+    if (alreadySent) {
+      addLog(`⚠ Already sent: "${headline}" — skipping`);
+      return res.status(200).json({ status: 'already_sent', headline, log });
+    }
+
+    // 3. Send image with caption
     if (imageUrl) {
       addLog('Sending image to Telegram…');
       const caption = `🚀 *${headline}*\n\n📰 ${summary}\n\n_— HITAM AI Club Daily Story_`;
-      await sendPhotoByUrl(imageUrl, caption);
+      await sendPhotoByUrl(cfg.api, cfg.chatId, imageUrl, caption);
       addLog('✅ Image sent');
     } else {
-      // No image, send as text
       addLog('No image URL — sending as text message');
-      await sendMessage(`🚀 *${headline}*\n\n📰 ${summary}\n\n_— HITAM AI Club Daily Story_`);
+      await sendMessage(cfg.api, cfg.chatId, `🚀 *${headline}*\n\n📰 ${summary}\n\n_— HITAM AI Club Daily Story_`);
       addLog('✅ Text message sent');
     }
 
-    // 3. Send poll
+    // 4. Send poll
     if (pollQuestion && pollOptions) {
       addLog(`Sending poll: "${pollQuestion}"`);
-      await sendPoll(pollQuestion, pollOptions);
+      await sendPoll(cfg.api, cfg.chatId, pollQuestion, pollOptions);
       addLog('✅ Poll sent');
     }
 
@@ -223,7 +285,7 @@ export default async function handler(req, res) {
 
     // Try to notify via Telegram about the error
     try {
-      await sendMessage(`⚠️ *Auto-send failed*\n\nError: ${err.message}`);
+      await sendMessage(cfg.api, cfg.chatId, `⚠️ *Auto-send failed*\n\nError: ${err.message}`);
     } catch {
       // silent
     }

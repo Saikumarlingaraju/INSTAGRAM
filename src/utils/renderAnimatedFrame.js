@@ -200,19 +200,32 @@ export function renderAnimatedFrame({ ctx, img, cropRect, storyData, theme, fram
   }
 
   // ═══════════════════════════════════════
-  //  3. FILM GRAIN — randomised per frame (cinematic flicker)
+  //  3. FILM GRAIN — fast noise overlay (no pixel loop)
   // ═══════════════════════════════════════
 
   if (frame > T.overlayStart) {
-    const grainData = ctx.getImageData(0, 0, W, H);
-    const px = grainData.data;
-    for (let i = 0; i < px.length; i += 16) {
-      const noise = (Math.random() - 0.5) * 18;
-      px[i] += noise;
-      px[i + 1] += noise;
-      px[i + 2] += noise;
+    const noiseCanvas = document.createElement('canvas');
+    noiseCanvas.width = 270;
+    noiseCanvas.height = 480;
+    const nCtx = noiseCanvas.getContext('2d');
+    const noiseImg = nCtx.createImageData(270, 480);
+    const nd = noiseImg.data;
+    for (let i = 0; i < nd.length; i += 4) {
+      const v = Math.random() * 255;
+      nd[i] = v;
+      nd[i + 1] = v;
+      nd[i + 2] = v;
+      nd[i + 3] = 255;
     }
-    ctx.putImageData(grainData, 0, 0);
+    nCtx.putImageData(noiseImg, 0, 0);
+
+    ctx.save();
+    ctx.globalAlpha = 0.04;
+    ctx.globalCompositeOperation = 'overlay';
+    const pat = ctx.createPattern(noiseCanvas, 'repeat');
+    ctx.fillStyle = pat;
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
   }
 
   // ═══════════════════════════════════════

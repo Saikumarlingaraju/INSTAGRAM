@@ -1,18 +1,31 @@
 // ═══════════════════════════════════════════════════════════════
 //  renderAnimatedFrame.js
 //
-//  Renders ONE frame of the animated Instagram story onto a
-//  canvas context. Uses Remotion's interpolate/spring for the
-//  exact same easing curves as the live Player preview.
+//  SINGLE SOURCE OF TRUTH for the Instagram story visual.
 //
-//  Called 240 times (8s × 30fps) by the video export pipeline.
+//  Renders ONE frame of the animated story onto a canvas context.
+//  Static preview = render at frame (TOTAL_FRAMES - 1).
+//  Video export  = render frames 0 → TOTAL_FRAMES - 1.
+//  Remotion      = render via useCurrentFrame().
+//
+//  Uses Remotion's interpolate/spring for easing curves.
 // ═══════════════════════════════════════════════════════════════
 
 import { interpolate, spring } from 'remotion';
+import {
+  W as CONST_W, H as CONST_H,
+  SAFE_TOP as CONST_SAFE_TOP,
+  POLL_ZONE_TOP as CONST_POLL_ZONE_TOP,
+  POLL_ZONE_BOTTOM as CONST_POLL_ZONE_BOTTOM,
+  PAD as CONST_PAD,
+  CONTENT_W as CONST_CONTENT_W,
+  FONT_DISPLAY as CONST_FONT_DISPLAY,
+  FONT_BODY as CONST_FONT_BODY,
+} from './constants.js';
 
 const CLAMP = { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' };
 
-// ── Reusable helpers (same as static renderer) ──
+// ── Reusable helpers ──
 
 function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
   const words = text.split(' ');
@@ -88,16 +101,16 @@ export function renderAnimatedFrame({ ctx, img, cropRect, storyData, theme, fram
   const H = ctx.canvas.height; // 1920
   const t = theme;
 
-  // ── Safe zones ──
-  const SAFE_TOP = 250;
-  const POLL_ZONE_TOP = 1310;
-  const POLL_ZONE_BOTTOM = 1600;
-  const PAD = 70;
-  const CONTENT_W = W - PAD * 2;
+  // ── Safe zones (from shared constants) ──
+  const SAFE_TOP = CONST_SAFE_TOP;
+  const POLL_ZONE_TOP = CONST_POLL_ZONE_TOP;
+  const POLL_ZONE_BOTTOM = CONST_POLL_ZONE_BOTTOM;
+  const PAD = CONST_PAD;
+  const CONTENT_W = CONST_CONTENT_W;
 
   // ── Fonts ──
-  const FONT_DISPLAY = '"Bebas Neue", "Impact", sans-serif';
-  const FONT_BODY = '"Poppins", "Segoe UI", sans-serif';
+  const FONT_DISPLAY = CONST_FONT_DISPLAY;
+  const FONT_BODY = CONST_FONT_BODY;
 
   // ── Animation timeline (same as AnimatedStory.jsx) ──
   const T = {
@@ -204,28 +217,36 @@ export function renderAnimatedFrame({ ctx, img, cropRect, storyData, theme, fram
   // ═══════════════════════════════════════
 
   if (frame > T.overlayStart) {
-    const noiseCanvas = document.createElement('canvas');
-    noiseCanvas.width = 270;
-    noiseCanvas.height = 480;
-    const nCtx = noiseCanvas.getContext('2d');
-    const noiseImg = nCtx.createImageData(270, 480);
-    const nd = noiseImg.data;
-    for (let i = 0; i < nd.length; i += 4) {
-      const v = Math.random() * 255;
-      nd[i] = v;
-      nd[i + 1] = v;
-      nd[i + 2] = v;
-      nd[i + 3] = 255;
+    // Works in browser, Web Worker (OffscreenCanvas), and Node (with canvas pkg)
+    let noiseCanvas;
+    if (typeof OffscreenCanvas !== 'undefined') {
+      noiseCanvas = new OffscreenCanvas(270, 480);
+    } else if (typeof document !== 'undefined') {
+      noiseCanvas = document.createElement('canvas');
+      noiseCanvas.width = 270;
+      noiseCanvas.height = 480;
     }
-    nCtx.putImageData(noiseImg, 0, 0);
+    if (noiseCanvas) {
+      const nCtx = noiseCanvas.getContext('2d');
+      const noiseImg = nCtx.createImageData(270, 480);
+      const nd = noiseImg.data;
+      for (let i = 0; i < nd.length; i += 4) {
+        const v = Math.random() * 255;
+        nd[i] = v;
+        nd[i + 1] = v;
+        nd[i + 2] = v;
+        nd[i + 3] = 255;
+      }
+      nCtx.putImageData(noiseImg, 0, 0);
 
-    ctx.save();
-    ctx.globalAlpha = 0.04;
-    ctx.globalCompositeOperation = 'overlay';
-    const pat = ctx.createPattern(noiseCanvas, 'repeat');
-    ctx.fillStyle = pat;
-    ctx.fillRect(0, 0, W, H);
-    ctx.restore();
+      ctx.save();
+      ctx.globalAlpha = 0.04;
+      ctx.globalCompositeOperation = 'overlay';
+      const pat = ctx.createPattern(noiseCanvas, 'repeat');
+      ctx.fillStyle = pat;
+      ctx.fillRect(0, 0, W, H);
+      ctx.restore();
+    }
   }
 
   // ═══════════════════════════════════════

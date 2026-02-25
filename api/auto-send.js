@@ -2,12 +2,15 @@
 //  Vercel Serverless Cron — Auto-Send to Telegram
 //
 //  Runs daily at 8:15 AM IST (2:45 AM UTC) via Vercel Cron.
-//  Fetches the latest row from Google Sheets, sends the
-//  Flux-generated image + caption + poll to Telegram.
+//  Fetches the latest row from Google Sheets, renders the
+//  Instagram story design using @napi-rs/canvas + renderAnimatedFrame,
+//  then sends the rendered PNG + caption + poll to Telegram.
 //
 //  Secrets: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, CRON_SECRET
 //  (set in Vercel Dashboard → Settings → Environment Variables)
 // ═══════════════════════════════════════════════════════════════
+
+import { renderStoryOnServer } from './lib/serverCanvas.js';
 
 const GOOGLE_SHEETS_CSV_URL =
   'https://docs.google.com/spreadsheets/d/e/2PACX-1vRtDSB1S74HHrypW_cogBnPX51sdHluVtF_eSOqPGslCVUEo-o9k5P2zvNeu4pKjImju_YwaMiCJp9t/pub?gid=0&single=true&output=csv';
@@ -96,6 +99,29 @@ async function withRetry(fn, label = 'call', maxRetries = 3) {
 }
 
 // ── Telegram API helpers ──
+async function sendPhotoBuffer(api, chatId, pngBuffer, caption) {
+  return withRetry(async () => {
+    const formData = new FormData();
+    formData.append('chat_id', chatId);
+    formData.append('caption', caption);
+    formData.append('parse_mode', 'Markdown');
+    formData.append(
+      'photo',
+      new Blob([pngBuffer], { type: 'image/png' }),
+      'hitam-ai-story.png'
+    );
+
+    const res = await fetch(`${api}/sendPhoto`, {
+      method: 'POST',
+      body: formData,
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(`sendPhoto failed: ${data.description}`);
+    return data;
+  }, 'sendPhoto');
+}
+
+// Fallback: send by URL if canvas rendering fails
 async function sendPhotoByUrl(api, chatId, imageUrl, caption) {
   return withRetry(async () => {
     const res = await fetch(`${api}/sendPhoto`, {
@@ -258,12 +284,21 @@ export default async function handler(req, res) {
       return res.status(200).json({ status: 'already_sent', headline, log });
     }
 
-    // 3. Send image with caption
+    // 3. Render the story design server-side and send as PNG
     if (imageUrl) {
-      addLog('Sending image to Telegram…');
-      const caption = `🚀 *${headline}*\n\n📰 ${summary}\n\n_— HITAM AI Club Daily Story_`;
-      await sendPhotoByUrl(cfg.api, cfg.chatId, imageUrl, caption);
-      addLog('✅ Image sent');
+      addLog('Rendering story design server-side…');
+      try {
+        const pngBuffer = await renderStoryOnServer(latest);
+        addLog('✅ Story rendered — sending to Telegram…');
+        const caption = `🚀 *${headline}*\n\n📰 ${summary}\n\n_— HITAM AI Club Daily Story_`;
+        await sendPhotoBuffer(cfg.api, cfg.chatId, pngBuffer, caption);
+        addLog('✅ Rendered story sent');
+      } catch (renderErr) {
+        addLog(`⚠ Server render failed: ${renderErr.message} — falling back to raw image`);
+        const caption = `🚀 *${headline}*\n\n📰 ${summary}\n\n_— HITAM AI Club Daily Story_`;
+        await sendPhotoByUrl(cfg.api, cfg.chatId, imageUrl, caption);
+        addLog('✅ Raw image sent (fallback)');
+      }
     } else {
       addLog('No image URL — sending as text message');
       await sendMessage(cfg.api, cfg.chatId, `🚀 *${headline}*\n\n📰 ${summary}\n\n_— HITAM AI Club Daily Story_`);

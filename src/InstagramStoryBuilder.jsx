@@ -1,12 +1,18 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Player } from '@remotion/player';
-import { AnimatedStory } from './components/AnimatedStory';
+import { useEffect, useRef, useState, Suspense, lazy } from 'react';
 import { renderAnimatedFrame } from './utils/renderAnimatedFrame';
 import { TOTAL_FRAMES, FPS } from './utils/constants';
 
 import { useStoryData } from './hooks/useStoryData';
 import { useVideoExport } from './hooks/useVideoExport';
 import { useAutoSend } from './hooks/useAutoSend';
+
+// Lazy-load Remotion Player + AnimatedStory (only needed for animated mode)
+const RemotionPlayer = lazy(() =>
+  import('@remotion/player').then((m) => ({ default: m.Player }))
+);
+const AnimatedStory = lazy(() =>
+  import('./components/AnimatedStory').then((m) => ({ default: m.AnimatedStory }))
+);
 
 // ═══════════════════════════════════════════════════════
 //  INSTAGRAM STORY BUILDER — Main Component
@@ -118,6 +124,8 @@ export default function InstagramStoryBuilder() {
         <div style={styles.toggleRow}>
           <button
             onClick={() => setMode('static')}
+            aria-label="Static preview mode"
+            aria-pressed={mode === 'static'}
             style={{
               ...styles.toggleBtn,
               ...(mode === 'static' ? styles.toggleActive : {}),
@@ -127,6 +135,8 @@ export default function InstagramStoryBuilder() {
           </button>
           <button
             onClick={() => setMode('animated')}
+            aria-label="Animated preview mode"
+            aria-pressed={mode === 'animated'}
             style={{
               ...styles.toggleBtn,
               ...(mode === 'animated' ? styles.toggleActive : {}),
@@ -139,7 +149,7 @@ export default function InstagramStoryBuilder() {
         {/* ── Download Buttons ── */}
         <div style={{ display: 'flex', gap: '8px', marginTop: '8px', flexWrap: 'wrap', justifyContent: 'center' }}>
           {mode === 'static' && (
-            <button onClick={handleDownloadPng} style={styles.button}>
+            <button onClick={handleDownloadPng} style={styles.button} aria-label="Download PNG image">
               ⬇️ Download PNG
             </button>
           )}
@@ -147,6 +157,7 @@ export default function InstagramStoryBuilder() {
             <button
               onClick={() => handleDownloadVideo(storyData, loadedImage, smartcropRect, colorTheme)}
               disabled={recording || !loadedImage}
+              aria-label={recording ? `Rendering MP4 ${recordProgress}%` : 'Download MP4 video'}
               style={{
                 ...styles.button,
                 backgroundColor: recording ? '#555' : '#28a745',
@@ -163,6 +174,7 @@ export default function InstagramStoryBuilder() {
           <button
             onClick={handleManualSend}
             disabled={sending || !loadedImage || recording}
+            aria-label="Send story to Telegram"
             style={{
               ...styles.button,
               backgroundColor: sending ? '#555' : '#0088cc',
@@ -177,7 +189,7 @@ export default function InstagramStoryBuilder() {
       </div>
 
       {/* ══════ STATUS PANEL ══════ */}
-      <div style={styles.statusPanel}>
+      <div style={styles.statusPanel} role="status" aria-live="polite">
         <div style={styles.statusRow}>
           <span style={{ fontWeight: 600, fontSize: '14px' }}>
             🤖 Auto-mode
@@ -220,8 +232,8 @@ export default function InstagramStoryBuilder() {
             <span style={{ fontSize: '11px', fontWeight: 600, opacity: 0.5, marginBottom: '4px' }}>
               Activity Log
             </span>
-            {activityLog.map((entry, i) => (
-              <div key={i} style={styles.logEntry}>
+            {activityLog.map((entry) => (
+              <div key={entry.id} style={styles.logEntry}>
                 <span style={{ opacity: 0.3, fontSize: '10px', fontFamily: 'monospace' }}>
                   {entry.time}
                 </span>
@@ -234,7 +246,7 @@ export default function InstagramStoryBuilder() {
 
       {/* Recording progress overlay */}
       {recording && (
-        <div style={styles.progressBar}>
+        <div style={styles.progressBar} role="progressbar" aria-valuenow={recordProgress} aria-valuemin={0} aria-valuemax={100}>
           <div
             style={{
               ...styles.progressFill,
@@ -259,29 +271,31 @@ export default function InstagramStoryBuilder() {
       {/* ── Animated Remotion Mode ── */}
       {mode === 'animated' && storyData && (
         <div style={styles.canvasWrapper}>
-          <Player
-            component={AnimatedStory}
-            inputProps={{
-              storyData,
-              theme: colorTheme,
-              img: loadedImage,
-              cropRect: smartcropRect,
-            }}
-            durationInFrames={240}
-            compositionWidth={1080}
-            compositionHeight={1920}
-            fps={30}
-            style={{
-              maxWidth: '90vw',
-              maxHeight: '80vh',
-              width: 1080,
-              height: 1920,
-              borderRadius: '4px',
-            }}
-            controls
-            loop
-            autoPlay
-          />
+          <Suspense fallback={<div style={{ color: '#888', padding: '40px', textAlign: 'center' }}>Loading player…</div>}>
+            <RemotionPlayer
+              component={AnimatedStory}
+              inputProps={{
+                storyData,
+                theme: colorTheme,
+                img: loadedImage,
+                cropRect: smartcropRect,
+              }}
+              durationInFrames={240}
+              compositionWidth={1080}
+              compositionHeight={1920}
+              fps={30}
+              style={{
+                maxWidth: '90vw',
+                maxHeight: '80vh',
+                width: 1080,
+                height: 1920,
+                borderRadius: '4px',
+              }}
+              controls
+              loop
+              autoPlay
+            />
+          </Suspense>
         </div>
       )}
     </div>

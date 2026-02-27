@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import { useRef, useEffect } from 'react';
 import { useCurrentFrame, useVideoConfig } from 'remotion';
 import { renderAnimatedFrame } from '../utils/renderAnimatedFrame';
 import { DEFAULT_THEME } from '../utils/theme';

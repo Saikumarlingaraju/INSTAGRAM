@@ -1,7 +1,4 @@
 import { useEffect, useState, useCallback } from 'react';
-import Papa from 'papaparse';
-import ColorThief from 'colorthief';
-import smartcrop from 'smartcrop';
 import { GOOGLE_SHEETS_CSV_URL } from '../utils/constants';
 import { createTheme, DEFAULT_THEME } from '../utils/theme';
 
@@ -72,14 +69,15 @@ export function useStoryData() {
   }, []);
 
   // ── Activity log helper ──
+  const logIdRef = { current: 0 };
   const addLog = useCallback((msg) => {
     const time = new Date().toLocaleTimeString('en-US', {
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit',
     });
-    setActivityLog((prev) => [{ time, msg }, ...prev].slice(0, 20));
-    console.log(`[${time}] ${msg}`);
+    const id = Date.now() + (++logIdRef.current);
+    setActivityLog((prev) => [{ id, time, msg }, ...prev].slice(0, 20));
   }, []);
 
   // ── Fetch latest story from Google Sheets ──
@@ -87,6 +85,7 @@ export function useStoryData() {
     try {
       const response = await fetch(GOOGLE_SHEETS_CSV_URL);
       const csvText = await response.text();
+      const Papa = (await import('papaparse')).default;
       return new Promise((resolve, reject) => {
         Papa.parse(csvText, {
           header: true,
@@ -136,6 +135,7 @@ export function useStoryData() {
     img.onload = async () => {
       let cropRect = null;
       try {
+        const smartcrop = (await import('smartcrop')).default;
         const result = await smartcrop.crop(img, {
           width: 1080,
           height: 1920,
@@ -152,6 +152,7 @@ export function useStoryData() {
 
       let theme = DEFAULT_THEME;
       try {
+        const ColorThief = (await import('colorthief')).default;
         const colorThief = new ColorThief();
         const dominant = colorThief.getColor(img);
         const palette = colorThief.getPalette(img, 6);

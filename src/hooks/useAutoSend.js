@@ -1,6 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
-import ColorThief from 'colorthief';
-import smartcrop from 'smartcrop';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { sendPhoto, sendVideo, sendPoll } from '../utils/telegram';
 import { createTheme, DEFAULT_THEME } from '../utils/theme';
 
@@ -31,11 +29,14 @@ export function useAutoSend({
   const [sending, setSending] = useState(false);
   const [sendStep, setSendStep] = useState('');
   const [nextCheckIn, setNextCheckIn] = useState(0);
+  const sendingRef = useRef(false);
+  const sendToTelegramRef = useRef(null);
 
   // ── Send to Telegram pipeline ──
   const sendToTelegram = useCallback(
     async (data, img, crop, theme) => {
-      if (sending) return;
+      if (sendingRef.current) return;
+      sendingRef.current = true;
       setSending(true);
 
       const headline = data['Headline'] || 'AI News';
@@ -92,12 +93,16 @@ export function useAutoSend({
         console.error('Telegram send error:', err);
       } finally {
         setSending(false);
+        sendingRef.current = false;
         setRecording(false);
         setRecordProgress(0);
       }
     },
-    [sending, generatePngBlob, generateMp4Blob, addLog, setRecording, setRecordProgress]
+    [generatePngBlob, generateMp4Blob, addLog, setRecording, setRecordProgress]
   );
+
+  // Keep ref in sync
+  sendToTelegramRef.current = sendToTelegram;
 
   // ── Manual send with dedup check ──
   const handleManualSend = useCallback(() => {
@@ -155,6 +160,7 @@ export function useAutoSend({
 
           let crop = null;
           try {
+            const smartcrop = (await import('smartcrop')).default;
             const result = await smartcrop.crop(img, {
               width: 1080,
               height: 1920,
@@ -167,6 +173,7 @@ export function useAutoSend({
 
           let theme = DEFAULT_THEME;
           try {
+            const ColorThief = (await import('colorthief')).default;
             const ct = new ColorThief();
             const dominant = ct.getColor(img);
             const palette = ct.getPalette(img, 6);
@@ -181,7 +188,7 @@ export function useAutoSend({
           setLastSentHeadline(headline);
 
           addLog('Auto-sending to Telegram…');
-          await sendToTelegram(latest, img, crop, theme);
+          await sendToTelegramRef.current(latest, img, crop, theme);
         } else {
           addLog('Checked sheet — no new story');
         }
@@ -204,7 +211,7 @@ export function useAutoSend({
       clearTimeout(startDelay);
       clearTimeout(timerId);
     };
-  }, [autoEnabled, fontsReady, fetchLatestStory, sendToTelegram, addLog, setStoryData]);
+  }, [autoEnabled, fontsReady, fetchLatestStory, addLog, setStoryData]);
 
   return {
     autoEnabled,

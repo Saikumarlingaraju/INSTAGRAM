@@ -181,7 +181,11 @@ export function useVideoExport(canvasRef) {
 
         if (onProgress) onProgress(Math.round(((i + 1) / totalFrames) * 100));
 
-        if (i % 5 === 0) {
+        // Drain encoder queue + yield to UI
+        if (i % 5 === 0 || encoder.encodeQueueSize > 5) {
+          while (encoder.encodeQueueSize > 5) {
+            await new Promise((r) => setTimeout(r, 1));
+          }
           await new Promise((r) => setTimeout(r, 0));
         }
       }
@@ -221,13 +225,17 @@ export function useVideoExport(canvasRef) {
   // ── Download PNG ──
   const handleDownloadPng = useCallback(() => {
     if (!canvasRef.current) return;
-    const dataURL = canvasRef.current.toDataURL('image/png');
-    const link = document.createElement('a');
-    link.href = dataURL;
-    link.download = 'hitam-ai-story.png';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    canvasRef.current.toBlob((blob) => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'hitam-ai-story.png';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }, 'image/png');
   }, [canvasRef]);
 
   // ── Download MP4 ──

@@ -102,6 +102,11 @@ async function encodeVideo({ imageBitmap, cropRect, storyData, theme }) {
     encoder.encode(videoFrame, { keyFrame: i % 30 === 0 });
     videoFrame.close();
 
+    // Drain encoder queue to prevent backpressure
+    while (encoder.encodeQueueSize > 5) {
+      await new Promise((r) => setTimeout(r, 1));
+    }
+
     // Report progress every 5 frames
     if (i % 5 === 0) {
       self.postMessage({

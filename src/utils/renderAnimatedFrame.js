@@ -1,17 +1,17 @@
-// ═══════════════════════════════════════════════════════════════
+﻿// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 //  renderAnimatedFrame.js
 //
 //  SINGLE SOURCE OF TRUTH for the Instagram story visual.
 //
 //  Renders ONE frame of the animated story onto a canvas context.
 //  Static preview = render at frame (TOTAL_FRAMES - 1).
-//  Video export  = render frames 0 → TOTAL_FRAMES - 1.
+//  Video export  = render frames 0 â†’ TOTAL_FRAMES - 1.
 //  Remotion      = render via useCurrentFrame().
 //
-//  Uses Remotion's interpolate/spring for easing curves.
-// ═══════════════════════════════════════════════════════════════
+//  Uses lightweight local interpolate/spring (no Remotion dependency).
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
-import { interpolate, spring } from 'remotion';
+import { interpolate, spring } from './animation.js';
 import {
   W as CONST_W, H as CONST_H,
   SAFE_TOP as CONST_SAFE_TOP,
@@ -25,7 +25,78 @@ import {
 
 const CLAMP = { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' };
 
-// ── Reusable helpers ──
+// â”€â”€ Pre-generated noise textures for film grain (cached) â”€â”€
+const GRAIN_TEXTURES = [];
+const GRAIN_W = 270;
+const GRAIN_H = 480;
+const GRAIN_COUNT = 4;
+
+function getGrainTexture(frameIndex) {
+  const idx = frameIndex % GRAIN_COUNT;
+  if (GRAIN_TEXTURES[idx]) return GRAIN_TEXTURES[idx];
+
+  // Create noise canvas based on environment
+  let noiseCanvas;
+  if (typeof OffscreenCanvas !== 'undefined') {
+    noiseCanvas = new OffscreenCanvas(GRAIN_W, GRAIN_H);
+  } else if (typeof document !== 'undefined') {
+    noiseCanvas = document.createElement('canvas');
+    noiseCanvas.width = GRAIN_W;
+    noiseCanvas.height = GRAIN_H;
+  } else {
+    return null; // Node.js â€” skip grain
+  }
+
+  const nCtx = noiseCanvas.getContext('2d');
+  const noiseImg = nCtx.createImageData(GRAIN_W, GRAIN_H);
+  const nd = noiseImg.data;
+  for (let i = 0; i < nd.length; i += 4) {
+    const v = (Math.random() * 255) | 0;
+    nd[i] = v;
+    nd[i + 1] = v;
+    nd[i + 2] = v;
+    nd[i + 3] = 255;
+  }
+  nCtx.putImageData(noiseImg, 0, 0);
+  GRAIN_TEXTURES[idx] = noiseCanvas;
+  return noiseCanvas;
+}
+
+// â”€â”€ Module-scope shadow helpers (avoid re-creation per frame) â”€â”€
+function setShadow(ctx, blur = 8, alpha = 0.6) {
+  ctx.shadowColor = `rgba(0,0,0,${alpha})`;
+  ctx.shadowBlur = blur;
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 2;
+}
+function setGlow(ctx, color, blur = 20) {
+  ctx.shadowColor = color;
+  ctx.shadowBlur = blur;
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 0;
+}
+function clearShadow(ctx) {
+  ctx.shadowColor = 'transparent';
+  ctx.shadowBlur = 0;
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 0;
+}
+
+// â”€â”€ Cached date string (recomputed max once per minute) â”€â”€
+let _cachedDate = '';
+let _cachedDateTs = 0;
+function getFormattedDate() {
+  const now = Date.now();
+  if (now - _cachedDateTs > 60_000) {
+    _cachedDate = new Date().toLocaleDateString('en-US', {
+      month: 'short', day: 'numeric', year: 'numeric',
+    });
+    _cachedDateTs = now;
+  }
+  return _cachedDate;
+}
+
+// â”€â”€ Reusable helpers â”€â”€
 
 function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
   const words = text.split(' ');
@@ -92,27 +163,27 @@ function computeWordPositions(ctx, words, startX, startY, maxWidth, lineHeight) 
   return positions;
 }
 
-// ═══════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 //  Main render function
-// ═══════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 export function renderAnimatedFrame({ ctx, img, cropRect, storyData, theme, frame, fps = 30 }) {
   const W = ctx.canvas.width;  // 1080
   const H = ctx.canvas.height; // 1920
   const t = theme;
 
-  // ── Safe zones (from shared constants) ──
+  // â”€â”€ Safe zones (from shared constants) â”€â”€
   const SAFE_TOP = CONST_SAFE_TOP;
   const POLL_ZONE_TOP = CONST_POLL_ZONE_TOP;
   const POLL_ZONE_BOTTOM = CONST_POLL_ZONE_BOTTOM;
   const PAD = CONST_PAD;
   const CONTENT_W = CONST_CONTENT_W;
 
-  // ── Fonts ──
+  // â”€â”€ Fonts â”€â”€
   const FONT_DISPLAY = CONST_FONT_DISPLAY;
   const FONT_BODY = CONST_FONT_BODY;
 
-  // ── Animation timeline (same as AnimatedStory.jsx) ──
+  // â”€â”€ Animation timeline (same as AnimatedStory.jsx) â”€â”€
   const T = {
     bgStart: 0,
     overlayStart: 5,
@@ -132,35 +203,17 @@ export function renderAnimatedFrame({ ctx, img, cropRect, storyData, theme, fram
     branding: 150,
   };
 
-  // ── Shared shadow helpers ──
-  const setShadow = (blur = 8, alpha = 0.6) => {
-    ctx.shadowColor = `rgba(0,0,0,${alpha})`;
-    ctx.shadowBlur = blur;
-    ctx.shadowOffsetX = 0;
-    ctx.shadowOffsetY = 2;
-  };
-  const setGlow = (color, blur = 20) => {
-    ctx.shadowColor = color;
-    ctx.shadowBlur = blur;
-    ctx.shadowOffsetX = 0;
-    ctx.shadowOffsetY = 0;
-  };
-  const clearShadow = () => {
-    ctx.shadowColor = 'transparent';
-    ctx.shadowBlur = 0;
-    ctx.shadowOffsetX = 0;
-    ctx.shadowOffsetY = 0;
-  };
+  // Shadow helpers use module-scope functions (ctx passed as arg)
 
-  // ── Start fresh ──
+  // â”€â”€ Start fresh â”€â”€
   ctx.clearRect(0, 0, W, H);
   ctx.fillStyle = '#050514';
   ctx.fillRect(0, 0, W, H);
   ctx.textBaseline = 'top';
 
-  // ═══════════════════════════════════════
-  //  1. BACKGROUND IMAGE — Ken Burns zoom
-  // ═══════════════════════════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  //  1. BACKGROUND IMAGE â€” Ken Burns zoom
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
   const bgOpacity = interpolate(frame, [0, 20], [0, 1], CLAMP);
   const zoom = interpolate(frame, [0, 240], [1.0, 1.12], CLAMP);
@@ -192,9 +245,9 @@ export function renderAnimatedFrame({ ctx, img, cropRect, storyData, theme, fram
     ctx.restore();
   }
 
-  // ═══════════════════════════════════════
-  //  2. DARK OVERLAY — fade in
-  // ═══════════════════════════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  //  2. DARK OVERLAY â€” fade in
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
   const overlayAlpha = interpolate(frame - T.overlayStart, [0, 15], [0, 1], CLAMP);
   if (overlayAlpha > 0) {
@@ -212,33 +265,14 @@ export function renderAnimatedFrame({ ctx, img, cropRect, storyData, theme, fram
     ctx.restore();
   }
 
-  // ═══════════════════════════════════════
-  //  3. FILM GRAIN — fast noise overlay (no pixel loop)
-  // ═══════════════════════════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  //  3. FILM GRAIN â€” fast noise overlay (no pixel loop)
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
   if (frame > T.overlayStart) {
-    // Works in browser, Web Worker (OffscreenCanvas), and Node (with canvas pkg)
-    let noiseCanvas;
-    if (typeof OffscreenCanvas !== 'undefined') {
-      noiseCanvas = new OffscreenCanvas(270, 480);
-    } else if (typeof document !== 'undefined') {
-      noiseCanvas = document.createElement('canvas');
-      noiseCanvas.width = 270;
-      noiseCanvas.height = 480;
-    }
+    // Use pre-cached noise textures (4 variants cycled)
+    const noiseCanvas = getGrainTexture(frame);
     if (noiseCanvas) {
-      const nCtx = noiseCanvas.getContext('2d');
-      const noiseImg = nCtx.createImageData(270, 480);
-      const nd = noiseImg.data;
-      for (let i = 0; i < nd.length; i += 4) {
-        const v = Math.random() * 255;
-        nd[i] = v;
-        nd[i + 1] = v;
-        nd[i + 2] = v;
-        nd[i + 3] = 255;
-      }
-      nCtx.putImageData(noiseImg, 0, 0);
-
       ctx.save();
       ctx.globalAlpha = 0.04;
       ctx.globalCompositeOperation = 'overlay';
@@ -249,9 +283,9 @@ export function renderAnimatedFrame({ ctx, img, cropRect, storyData, theme, fram
     }
   }
 
-  // ═══════════════════════════════════════
-  //  4. CORNER FRAME ACCENTS — staggered spring
-  // ═══════════════════════════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  //  4. CORNER FRAME ACCENTS â€” staggered spring
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
   const corners = [
     { sx: 1, sy: 1, ax: 45, ay: 45 },                          // top-left
@@ -276,15 +310,15 @@ export function renderAnimatedFrame({ ctx, img, cropRect, storyData, theme, fram
     ctx.restore();
   });
 
-  // ═══════════════════════════════════════
-  //  5. STORY DOTS — fade in
-  // ═══════════════════════════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  //  5. STORY DOTS â€” fade in
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
   const dotsAlpha = interpolate(frame - (T.accentBar - 5), [0, 10], [0, 1], CLAMP);
   if (dotsAlpha > 0) {
     ctx.save();
     ctx.globalAlpha = dotsAlpha;
-    clearShadow();
+    clearShadow(ctx);
     const dotY = SAFE_TOP - 30;
     const dotSpacing = 18;
     const totalDots = 4;
@@ -298,33 +332,33 @@ export function renderAnimatedFrame({ ctx, img, cropRect, storyData, theme, fram
     ctx.restore();
   }
 
-  // ═══════════════════════════════════════
-  //  6. ACCENT BAR — wipe in from left
-  // ═══════════════════════════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  //  6. ACCENT BAR â€” wipe in from left
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
   const barScaleX = interpolate(frame - T.accentBar, [0, 20], [0, 1], CLAMP);
   if (barScaleX > 0) {
     ctx.save();
-    setGlow(`rgba(${t.primaryRgb}, 0.5)`, 12);
+    setGlow(ctx, `rgba(${t.primaryRgb}, 0.5)`, 12);
     const accentGrad = ctx.createLinearGradient(PAD, 0, W - PAD, 0);
     accentGrad.addColorStop(0, `rgba(${t.primaryRgb}, 0.9)`);
     accentGrad.addColorStop(0.5, `rgba(${t.accentRgb}, 0.9)`);
     accentGrad.addColorStop(1, `rgba(${t.warmRgb}, 0.9)`);
     ctx.fillStyle = accentGrad;
     ctx.fillRect(PAD, SAFE_TOP, CONTENT_W * barScaleX, 4);
-    clearShadow();
+    clearShadow(ctx);
     ctx.restore();
   }
 
   let cursorY = SAFE_TOP + 18;
 
-  // ═══════════════════════════════════════
-  //  7. TRENDING BADGE — spring scale-in
-  // ═══════════════════════════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  //  7. TRENDING BADGE â€” spring scale-in
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
   const badgeS = spring({ frame: frame - T.badge, fps, config: { damping: 12 } });
   if (badgeS > 0) {
-    const badgeText = '⚡ TRENDING NEWS';
+    const badgeText = 'âš¡ TRENDING NEWS';
     ctx.font = `600 22px ${FONT_BODY}`;
     const badgeW = ctx.measureText(badgeText).width + 28;
     const badgeH = 36;
@@ -344,11 +378,11 @@ export function renderAnimatedFrame({ ctx, img, cropRect, storyData, theme, fram
     roundRect(ctx, PAD, cursorY, badgeW, badgeH, 8);
     ctx.fill();
 
-    setGlow(`rgba(${t.warmRgb}, 0.3)`, 15);
+    setGlow(ctx, `rgba(${t.warmRgb}, 0.3)`, 15);
     ctx.fillStyle = 'rgba(0,0,0,0)';
     roundRect(ctx, PAD, cursorY, badgeW, badgeH, 8);
     ctx.fill();
-    clearShadow();
+    clearShadow(ctx);
 
     ctx.fillStyle = '#FFFFFF';
     ctx.font = `600 20px ${FONT_BODY}`;
@@ -356,9 +390,9 @@ export function renderAnimatedFrame({ ctx, img, cropRect, storyData, theme, fram
     ctx.restore();
   }
 
-  // ═══════════════════════════════════════
-  //  8. DATE — fade + slide up
-  // ═══════════════════════════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  //  8. DATE â€” fade + slide up
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
   const dateAlpha = interpolate(frame - T.date, [0, 10], [0, 1], CLAMP);
   const dateSlide = interpolate(frame - T.date, [0, 10], [30, 0], CLAMP);
@@ -366,9 +400,7 @@ export function renderAnimatedFrame({ ctx, img, cropRect, storyData, theme, fram
     ctx.save();
     ctx.globalAlpha = dateAlpha;
     ctx.translate(0, dateSlide);
-    const today = new Date().toLocaleDateString('en-US', {
-      month: 'short', day: 'numeric', year: 'numeric',
-    });
+    const today = getFormattedDate();
     ctx.fillStyle = 'rgba(255,255,255,0.5)';
     ctx.font = `400 20px ${FONT_BODY}`;
     ctx.textAlign = 'right';
@@ -377,11 +409,11 @@ export function renderAnimatedFrame({ ctx, img, cropRect, storyData, theme, fram
     ctx.restore();
   }
 
-  cursorY += 36 + 20; // badgeH + gap → 324
+  cursorY += 36 + 20; // badgeH + gap â†’ 324
 
-  // ═══════════════════════════════════════
-  //  9. HEADLINE — word-by-word spring reveal
-  // ═══════════════════════════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  //  9. HEADLINE â€” word-by-word spring reveal
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
   const headlineSize = 80;
   const headlineLeading = 88;
@@ -407,16 +439,16 @@ export function renderAnimatedFrame({ ctx, img, cropRect, storyData, theme, fram
 
       // First word gets extra glow
       if (i === 0) {
-        setGlow(`rgba(${t.primaryRgb}, 0.7)`, 30);
+        setGlow(ctx, `rgba(${t.primaryRgb}, 0.7)`, 30);
       } else {
-        setShadow(12, 0.7);
+        setShadow(ctx, 12, 0.7);
       }
 
       ctx.fillStyle = '#FFFFFF';
       ctx.font = `400 ${headlineSize}px ${FONT_DISPLAY}`;
       if ('letterSpacing' in ctx) ctx.letterSpacing = '3px';
       ctx.fillText(wp.word, wp.x, wp.y + slideY);
-      clearShadow();
+      clearShadow(ctx);
       ctx.restore();
     });
 
@@ -431,27 +463,27 @@ export function renderAnimatedFrame({ ctx, img, cropRect, storyData, theme, fram
     if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
   }
 
-  // ═══════════════════════════════════════
-  //  10. GRADIENT DIVIDER — wipe in
-  // ═══════════════════════════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  //  10. GRADIENT DIVIDER â€” wipe in
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
   const divScaleX = interpolate(frame - T.divider, [0, 15], [0, 1], CLAMP);
   if (divScaleX > 0) {
     ctx.save();
-    setGlow(`rgba(${t.primaryRgb}, 0.4)`, 8);
+    setGlow(ctx, `rgba(${t.primaryRgb}, 0.4)`, 8);
     const divGrad = ctx.createLinearGradient(PAD, 0, PAD + 250, 0);
     divGrad.addColorStop(0, `rgba(${t.primaryRgb}, 0.8)`);
     divGrad.addColorStop(1, `rgba(${t.primaryRgb}, 0)`);
     ctx.fillStyle = divGrad;
     ctx.fillRect(PAD, cursorY, 250 * divScaleX, 3);
-    clearShadow();
+    clearShadow(ctx);
     ctx.restore();
   }
   cursorY += 20;
 
-  // ═══════════════════════════════════════
-  //  11. GLASSMORPHISM SUMMARY CARD — slide up
-  // ═══════════════════════════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  //  11. GLASSMORPHISM SUMMARY CARD â€” slide up
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
   const cardAlpha = interpolate(frame - T.cardReveal, [0, 20], [0, 1], CLAMP);
   const cardSlide = interpolate(frame - T.cardReveal, [0, 20], [40, 0], CLAMP);
@@ -468,37 +500,37 @@ export function renderAnimatedFrame({ ctx, img, cropRect, storyData, theme, fram
     const cardH = cardPadV + summaryH + cardPadV;
 
     // Glass card background
-    clearShadow();
+    clearShadow(ctx);
     ctx.fillStyle = `rgba(${t.dominantRgb}, 0.10)`;
     roundRect(ctx, PAD - 5, cursorY, CONTENT_W + 10, cardH, 16);
     ctx.fill();
 
     // Glass card border
-    setGlow(`rgba(${t.primaryRgb}, 0.15)`, 6);
+    setGlow(ctx, `rgba(${t.primaryRgb}, 0.15)`, 6);
     ctx.strokeStyle = `rgba(${t.primaryRgb}, 0.20)`;
     ctx.lineWidth = 1.5;
     roundRect(ctx, PAD - 5, cursorY, CONTENT_W + 10, cardH, 16);
     ctx.stroke();
-    clearShadow();
+    clearShadow(ctx);
 
     // Left accent bar
-    setGlow(`rgba(${t.primaryRgb}, 0.4)`, 6);
+    setGlow(ctx, `rgba(${t.primaryRgb}, 0.4)`, 6);
     ctx.fillStyle = `rgba(${t.primaryRgb}, 0.7)`;
     roundRect(ctx, PAD + 3, cursorY + 10, 4, cardH - 20, 2);
     ctx.fill();
-    clearShadow();
+    clearShadow(ctx);
 
-    // Summary text — sentence-by-sentence reveal
+    // Summary text â€” sentence-by-sentence reveal
     const sentences = summaryText.split('. ');
     ctx.font = `400 34px ${FONT_BODY}`;
 
     // For sentence-by-sentence: draw all text but vary alpha per sentence
     // Simplified: draw full text with uniform alpha since per-sentence on canvas is complex
     const textAlpha = interpolate(frame - T.summaryText, [0, 25], [0, 1], CLAMP);
-    setShadow(6, 0.4);
+    setShadow(ctx, 6, 0.4);
     ctx.fillStyle = `rgba(230, 235, 245, ${0.95 * textAlpha})`;
     wrapText(ctx, summaryText, PAD + 22, cursorY + cardPadV, CONTENT_W - 60, 48);
-    clearShadow();
+    clearShadow(ctx);
 
     const cardBottomY = cursorY + cardH;
     cursorY = cardBottomY + 12;
@@ -520,9 +552,9 @@ export function renderAnimatedFrame({ ctx, img, cropRect, storyData, theme, fram
     cursorY += cardSlide; // adjust for slide
   }
 
-  // ═══════════════════════════════════════
-  //  12. DECORATIVE DOT GRID — fade in
-  // ═══════════════════════════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  //  12. DECORATIVE DOT GRID â€” fade in
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
   const dotGridAlpha = interpolate(frame - T.dotGrid, [0, 20], [0, 0.5], CLAMP);
   if (dotGridAlpha > 0) {
@@ -531,7 +563,7 @@ export function renderAnimatedFrame({ ctx, img, cropRect, storyData, theme, fram
     if (dotGridEndY > dotGridStartY + 40) {
       ctx.save();
       ctx.globalAlpha = dotGridAlpha;
-      clearShadow();
+      clearShadow(ctx);
       const gridCenterX = W / 2;
       const gridCenterY = (dotGridStartY + dotGridEndY) / 2;
       const gridSize = Math.min(dotGridEndY - dotGridStartY, 200);
@@ -564,9 +596,9 @@ export function renderAnimatedFrame({ ctx, img, cropRect, storyData, theme, fram
     }
   }
 
-  // ═══════════════════════════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   //  13. POLL SECTION
-  // ═══════════════════════════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
   const pollQ = storyData['Poll Question'] || '';
   if (pollQ) {
@@ -583,54 +615,54 @@ export function renderAnimatedFrame({ ctx, img, cropRect, storyData, theme, fram
       const totalPollBlock = pollBadgeH + gapAfterBadge + pollQHeight;
       const pollBlockStartY = POLL_ZONE_TOP - totalPollBlock - 20;
 
-      clearShadow();
+      clearShadow(ctx);
       ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
       ctx.fillRect(0, pollBlockStartY - 15, W, totalPollBlock + 35);
 
       ctx.restore();
 
-      // Poll badge — spring
+      // Poll badge â€” spring
       const pollBadgeS = spring({ frame: frame - T.pollBadge, fps, config: { damping: 12 } });
       if (pollBadgeS > 0) {
         ctx.save();
         ctx.globalAlpha = pollBadgeS;
-        setGlow(`rgba(${t.accentRgb}, 0.3)`, 10);
+        setGlow(ctx, `rgba(${t.accentRgb}, 0.3)`, 10);
         ctx.fillStyle = `rgba(${t.accentRgb}, 0.85)`;
         roundRect(ctx, PAD, pollBlockStartY, 100, pollBadgeH, 6);
         ctx.fill();
-        clearShadow();
+        clearShadow(ctx);
         ctx.fillStyle = '#FFFFFF';
         ctx.font = `700 18px ${FONT_BODY}`;
-        ctx.fillText('📊 POLL', PAD + 12, pollBlockStartY + 7);
+        ctx.fillText('ðŸ“Š POLL', PAD + 12, pollBlockStartY + 7);
         ctx.restore();
       }
 
-      // Poll question — fade + slide
+      // Poll question â€” fade + slide
       const pollQAlpha = interpolate(frame - T.pollQuestion, [0, 15], [0, 1], CLAMP);
       const pollQSlide = interpolate(frame - T.pollQuestion, [0, 15], [30, 0], CLAMP);
       if (pollQAlpha > 0) {
         ctx.save();
         ctx.globalAlpha = pollQAlpha;
         ctx.translate(0, pollQSlide);
-        setShadow(8, 0.5);
+        setShadow(ctx, 8, 0.5);
         ctx.fillStyle = '#FFFFFF';
         ctx.font = `600 36px ${FONT_BODY}`;
         wrapText(ctx, pollQ, PAD, pollBlockStartY + pollBadgeH + gapAfterBadge, CONTENT_W, 46);
-        clearShadow();
+        clearShadow(ctx);
         ctx.restore();
       }
     }
   }
 
-  // ═══════════════════════════════════════
-  //  14. POLL ZONE — dashed outline + pulse
-  // ═══════════════════════════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  //  14. POLL ZONE â€” dashed outline + pulse
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
   const pzAlpha = interpolate(frame - T.pollZone, [0, 20], [0, 1], CLAMP);
   if (pzAlpha > 0) {
     ctx.save();
     ctx.globalAlpha = pzAlpha;
-    clearShadow();
+    clearShadow(ctx);
 
     ctx.setLineDash([6, 6]);
     ctx.strokeStyle = `rgba(${t.primaryRgb}, 0.10)`;
@@ -653,7 +685,7 @@ export function renderAnimatedFrame({ ctx, img, cropRect, storyData, theme, fram
     ctx.save();
     ctx.translate(W / 2, tapY - 20);
     ctx.scale(pulse, pulse);
-    ctx.fillText('👆 Tap to Vote', 0, 0);
+    ctx.fillText('ðŸ‘† Tap to Vote', 0, 0);
     ctx.restore();
 
     ctx.fillStyle = 'rgba(255,255,255,0.07)';
@@ -664,9 +696,9 @@ export function renderAnimatedFrame({ ctx, img, cropRect, storyData, theme, fram
     ctx.restore();
   }
 
-  // ═══════════════════════════════════════
-  //  15. BOTTOM BRANDING — fade in
-  // ═══════════════════════════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  //  15. BOTTOM BRANDING â€” fade in
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
   const brandAlpha = interpolate(frame - T.branding, [0, 15], [0, 1], CLAMP);
   const brandSlide = interpolate(frame - T.branding, [0, 15], [30, 0], CLAMP);
@@ -674,7 +706,7 @@ export function renderAnimatedFrame({ ctx, img, cropRect, storyData, theme, fram
     ctx.save();
     ctx.globalAlpha = brandAlpha;
     ctx.translate(0, brandSlide);
-    clearShadow();
+    clearShadow(ctx);
 
     const brandLineGrad = ctx.createLinearGradient(W / 2 - 80, 0, W / 2 + 80, 0);
     brandLineGrad.addColorStop(0, 'rgba(255,255,255,0)');
@@ -686,7 +718,7 @@ export function renderAnimatedFrame({ ctx, img, cropRect, storyData, theme, fram
     ctx.fillStyle = 'rgba(255,255,255,0.20)';
     ctx.font = `500 18px ${FONT_BODY}`;
     ctx.textAlign = 'center';
-    ctx.fillText('HITAM AI  •  Powered by AI', W / 2, POLL_ZONE_BOTTOM + 28);
+    ctx.fillText('HITAM AI  â€¢  Powered by AI', W / 2, POLL_ZONE_BOTTOM + 28);
     ctx.textAlign = 'left';
 
     ctx.restore();

@@ -7,4 +7,17 @@ export default defineConfig({
   worker: {
     format: 'es',
   },
+  build: {
+    target: 'esnext',
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          remotion: ['remotion', '@remotion/player'],
+        },
+      },
+    },
+  },
+  esbuild: {
+    drop: process.env.NODE_ENV === 'production' ? ['console', 'debugger'] : [],
+  },
 })

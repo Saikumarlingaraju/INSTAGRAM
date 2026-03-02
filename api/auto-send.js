@@ -195,8 +195,19 @@ function normalizeHeadline(text = '') {
 }
 
 function getKvConfig() {
-  const url = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
+  const url =
+    process.env.KV_REST_API_URL ||
+    process.env.UPSTASH_REDIS_REST_URL ||
+    process.env.UPSTASH_REDIS_REST_REDIS_URL ||
+    process.env.STORAGE_URL ||
+    process.env.STORAGE_REDIS_URL;
+
+  const token =
+    process.env.KV_REST_API_TOKEN ||
+    process.env.UPSTASH_REDIS_REST_TOKEN ||
+    process.env.UPSTASH_REDIS_REST_REDIS_TOKEN ||
+    process.env.STORAGE_TOKEN ||
+    process.env.STORAGE_REDIS_TOKEN;
 
   if (!url || !token) {
     return null;

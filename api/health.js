@@ -13,7 +13,12 @@ export default function handler(req, res) {
   const hasKvToken = !!process.env.KV_REST_API_TOKEN;
   const hasUpstashUrl = !!process.env.UPSTASH_REDIS_REST_URL;
   const hasUpstashToken = !!process.env.UPSTASH_REDIS_REST_TOKEN;
+  const hasUpstashRedisUrl = !!process.env.UPSTASH_REDIS_REST_REDIS_URL;
+  const hasUpstashRedisToken = !!process.env.UPSTASH_REDIS_REST_REDIS_TOKEN;
+  const hasStorageUrl = !!process.env.STORAGE_URL || !!process.env.STORAGE_REDIS_URL;
+  const hasStorageToken = !!process.env.STORAGE_TOKEN || !!process.env.STORAGE_REDIS_TOKEN;
   const dedupEnabled = (hasKvUrl && hasKvToken) || (hasUpstashUrl && hasUpstashToken);
+  const dedupEnabledAny = dedupEnabled || (hasUpstashRedisUrl && hasUpstashRedisToken) || (hasStorageUrl && hasStorageToken);
 
   const status = hasToken && hasChatId ? 'healthy' : 'misconfigured';
 
@@ -28,7 +33,11 @@ export default function handler(req, res) {
       KV_REST_API_TOKEN: hasKvToken ? '✅ set' : '⚠ missing (KV dedup disabled)',
       UPSTASH_REDIS_REST_URL: hasUpstashUrl ? '✅ set' : '⚠ missing (Upstash dedup disabled)',
       UPSTASH_REDIS_REST_TOKEN: hasUpstashToken ? '✅ set' : '⚠ missing (Upstash dedup disabled)',
-      DEDUP_STORE: dedupEnabled ? '✅ enabled' : '⚠ disabled',
+      UPSTASH_REDIS_REST_REDIS_URL: hasUpstashRedisUrl ? '✅ set' : '⚠ missing',
+      UPSTASH_REDIS_REST_REDIS_TOKEN: hasUpstashRedisToken ? '✅ set' : '⚠ missing',
+      STORAGE_URL: hasStorageUrl ? '✅ set' : '⚠ missing',
+      STORAGE_TOKEN: hasStorageToken ? '✅ set' : '⚠ missing',
+      DEDUP_STORE: dedupEnabledAny ? '✅ enabled' : '⚠ disabled',
     },
     cron: {
       schedule: '2:45 UTC (8:15 IST) daily',

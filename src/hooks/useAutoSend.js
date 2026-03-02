@@ -148,9 +148,12 @@ export function useAutoSend({
           addLog(`🆕 New story detected: "${headline}"`);
           setStoryData(latest);
 
-          addLog('Waiting for image to load & render…');
+          const imgUrl = latest['Image URL'] || '';
+          addLog(`Waiting for image to load & render… (${imgUrl.substring(0, 60)}…)`);
 
-          const img = await loadImageForRendering(latest['Image URL']);
+          const img = await loadImageForRendering(imgUrl);
+          addLog(`✅ Image loaded (${img.naturalWidth}×${img.naturalHeight})`);
+
 
           let crop = null;
           try {

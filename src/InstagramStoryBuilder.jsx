@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, Suspense, lazy } from 'react';
 import { renderAnimatedFrame } from './utils/renderAnimatedFrame';
 import { TOTAL_FRAMES, FPS } from './utils/constants';
 
+const BUILD_VERSION = 'v5-2026-03-02';
+
 import { useStoryData } from './hooks/useStoryData';
 import { useVideoExport } from './hooks/useVideoExport';
 import { useAutoSend } from './hooks/useAutoSend';
@@ -25,6 +27,11 @@ const AnimatedStory = lazy(() =>
 export default function InstagramStoryBuilder() {
   const canvasRef = useRef(null);
   const [mode, setMode] = useState('static');
+
+  // Log build version on mount so we can verify deployed code
+  useEffect(() => {
+    console.log(`%c[HITAM AI] Build ${BUILD_VERSION}`, 'color: #0ff; font-weight: bold');
+  }, []);
 
   // ── Hook 1: Data loading ──
   const {
@@ -230,7 +237,7 @@ export default function InstagramStoryBuilder() {
         {activityLog.length > 0 && (
           <div style={styles.logContainer}>
             <span style={{ fontSize: '11px', fontWeight: 600, opacity: 0.5, marginBottom: '4px' }}>
-              Activity Log
+              Activity Log <span style={{ fontFamily: 'monospace', fontSize: '9px', opacity: 0.5 }}>({BUILD_VERSION})</span>
             </span>
             {activityLog.map((entry) => (
               <div key={entry.id} style={styles.logEntry}>

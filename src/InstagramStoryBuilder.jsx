@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, Suspense, lazy } from 'react';
 import { renderAnimatedFrame } from './utils/renderAnimatedFrame';
 import { TOTAL_FRAMES, FPS } from './utils/constants';
 
-const BUILD_VERSION = 'v5-2026-03-02';
+const BUILD_VERSION = `v5-${typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : 'dev'}`;
 
 import { useStoryData } from './hooks/useStoryData';
 import { useVideoExport } from './hooks/useVideoExport';

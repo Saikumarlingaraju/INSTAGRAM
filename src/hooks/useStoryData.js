@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { GOOGLE_SHEETS_CSV_URL } from '../utils/constants';
 import { createTheme, DEFAULT_THEME } from '../utils/theme';
 import { loadImageForRendering } from '../utils/loadImage';
@@ -70,7 +70,7 @@ export function useStoryData() {
   }, []);
 
   // ── Activity log helper ──
-  const logIdRef = { current: 0 };
+  const logIdRef = useRef(0);
   const addLog = useCallback((msg) => {
     const time = new Date().toLocaleTimeString('en-US', {
       hour: '2-digit',

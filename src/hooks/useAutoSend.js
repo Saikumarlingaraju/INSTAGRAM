@@ -57,6 +57,9 @@ export function useAutoSend({
         offscreen.width = 1080;
         offscreen.height = 1920;
         const offCtx = offscreen.getContext('2d');
+        if (!offCtx) {
+          throw new Error('Failed to create offscreen canvas context');
+        }
         renderAnimatedFrame({
           ctx: offCtx,
           img,
@@ -199,9 +202,6 @@ export function useAutoSend({
           }
 
           await new Promise((r) => setTimeout(r, 3000));
-
-          localStorage.setItem('hitam-ai-last-headline', headline);
-          setLastSentHeadline(headline);
 
           addLog('Auto-sending to Telegram…');
           await sendToTelegramRef.current(latest, img, crop, theme);

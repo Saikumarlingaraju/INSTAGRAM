@@ -2,6 +2,8 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { sendPhoto, sendVideo, sendPoll } from '../utils/telegram';
 import { createTheme, DEFAULT_THEME } from '../utils/theme';
 import { loadImageForRendering } from '../utils/loadImage';
+import { renderAnimatedFrame } from '../utils/renderAnimatedFrame';
+import { TOTAL_FRAMES, FPS } from '../utils/constants';
 
 // ═══════════════════════════════════════════════════════
 //  useAutoSend — Telegram send pipeline + auto-polling
@@ -48,11 +50,28 @@ export function useAutoSend({
       const caption = `🚀 *${headline}*\n\n📰 ${summary}`;
 
       try {
-        // Step 1: Send PNG
+        // Step 1: Send PNG — render to offscreen canvas (avoids DOM canvas race)
         setSendStep('png');
         addLog('Sending static image to Telegram…');
-        await new Promise((r) => setTimeout(r, 500));
-        const pngBlob = await generatePngBlob();
+        const offscreen = document.createElement('canvas');
+        offscreen.width = 1080;
+        offscreen.height = 1920;
+        const offCtx = offscreen.getContext('2d');
+        renderAnimatedFrame({
+          ctx: offCtx,
+          img,
+          cropRect: crop,
+          storyData: data,
+          theme,
+          frame: TOTAL_FRAMES - 1,
+          fps: FPS,
+        });
+        const pngBlob = await new Promise((resolve, reject) => {
+          offscreen.toBlob(
+            (blob) => (blob ? resolve(blob) : reject(new Error('toBlob failed'))),
+            'image/png'
+          );
+        });
         await sendPhoto(pngBlob, caption);
         addLog('✅ Static image sent');
 
@@ -99,7 +118,7 @@ export function useAutoSend({
         setRecordProgress(0);
       }
     },
-    [generatePngBlob, generateMp4Blob, addLog, setRecording, setRecordProgress]
+    [generateMp4Blob, addLog, setRecording, setRecordProgress]
   );
 
   // Keep ref in sync

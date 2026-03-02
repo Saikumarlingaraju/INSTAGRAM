@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { GOOGLE_SHEETS_CSV_URL } from '../utils/constants';
 import { createTheme, DEFAULT_THEME } from '../utils/theme';
+import { proxyImageUrl } from '../utils/proxyImage';
 
 // ═══════════════════════════════════════════════════════
 //  GOOGLE FONTS — loaded via FontFace API
@@ -130,7 +131,7 @@ export function useStoryData() {
 
     const img = new Image();
     img.crossOrigin = 'anonymous';
-    img.src = storyData['Image URL'];
+    img.src = proxyImageUrl(storyData['Image URL']);
 
     img.onload = async () => {
       let cropRect = null;

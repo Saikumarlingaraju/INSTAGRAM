@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { sendPhoto, sendVideo, sendPoll } from '../utils/telegram';
 import { createTheme, DEFAULT_THEME } from '../utils/theme';
+import { proxyImageUrl } from '../utils/proxyImage';
 
 // ═══════════════════════════════════════════════════════
 //  useAutoSend — Telegram send pipeline + auto-polling
@@ -151,7 +152,7 @@ export function useAutoSend({
 
           const img = new Image();
           img.crossOrigin = 'anonymous';
-          img.src = latest['Image URL'];
+          img.src = proxyImageUrl(latest['Image URL']);
 
           await new Promise((resolve, reject) => {
             img.onload = resolve;

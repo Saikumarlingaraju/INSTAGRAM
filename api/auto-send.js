@@ -194,6 +194,55 @@ function normalizeHeadline(text = '') {
     .trim();
 }
 
+function getKvConfig() {
+  const url = process.env.KV_REST_API_URL;
+  const token = process.env.KV_REST_API_TOKEN;
+
+  if (!url || !token) {
+    return null;
+  }
+
+  return { url, token };
+}
+
+async function kvGet(key) {
+  const kv = getKvConfig();
+  if (!kv) return null;
+
+  const res = await fetch(`${kv.url}/get/${encodeURIComponent(key)}`, {
+    headers: {
+      Authorization: `Bearer ${kv.token}`,
+    },
+  });
+
+  if (!res.ok) {
+    throw new Error(`KV get failed: HTTP ${res.status}`);
+  }
+
+  const data = await res.json();
+  return data?.result ?? null;
+}
+
+async function kvSet(key, value, ttlSec = 60 * 60 * 24 * 365) {
+  const kv = getKvConfig();
+  if (!kv) return false;
+
+  const setUrl = `${kv.url}/set/${encodeURIComponent(key)}/${encodeURIComponent(value)}?EX=${ttlSec}`;
+  const res = await fetch(setUrl, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${kv.token}`,
+    },
+  });
+
+  if (!res.ok) {
+    throw new Error(`KV set failed: HTTP ${res.status}`);
+  }
+
+  const data = await res.json();
+  return data?.result === 'OK';
+}
+
 // ── Dedup: check recent bot messages for this headline ──
 async function wasAlreadySent(api, chatId, headline) {
   try {
@@ -292,15 +341,42 @@ export default async function handler(req, res) {
       return res.status(200).json({ status: 'empty_headline', log });
     }
 
-    // 2. Dedup check — was this headline already sent?
+    const headlineKey = normalizeHeadline(headline);
+    const dedupKey = `hitam:sent_story:${headlineKey}`;
+
+    // 2. Dedup check — KV first (persistent), Telegram history fallback
     addLog('Checking for duplicates…');
-    const alreadySent = await wasAlreadySent(cfg.api, cfg.chatId, headline);
+    let alreadySent = false;
+
+    try {
+      const kvValue = await kvGet(dedupKey);
+      if (kvValue) {
+        alreadySent = true;
+        addLog('KV dedup hit — already sent before');
+      }
+    } catch (err) {
+      addLog(`⚠ KV read failed: ${err.message} — falling back to Telegram history`);
+    }
+
+    if (!alreadySent) {
+      alreadySent = await wasAlreadySent(cfg.api, cfg.chatId, headline);
+      if (alreadySent) {
+        addLog('Telegram history dedup hit — already sent before');
+        try {
+          await kvSet(dedupKey, new Date().toISOString());
+          addLog('Backfilled dedup key in KV');
+        } catch {
+          // non-fatal
+        }
+      }
+    }
+
     if (alreadySent) {
       addLog(`⚠ Already sent: "${headline}" — skipping`);
       return res.status(200).json({ status: 'already_sent', headline, log });
     }
 
-    // 3. Render the story design server-side and send as PNG
+    // 3. Render/send story
     if (imageUrl) {
       addLog('Rendering story design server-side…');
       try {
@@ -319,6 +395,16 @@ export default async function handler(req, res) {
       addLog('No image URL — sending as text message');
       await sendMessage(cfg.api, cfg.chatId, `🚀 *${headline}*\n\n📰 ${summary}\n\n_— HITAM AI Club Daily Story_`);
       addLog('✅ Text message sent');
+    }
+
+    // Mark dedup key after successful primary send.
+    try {
+      const saved = await kvSet(dedupKey, new Date().toISOString());
+      if (saved) {
+        addLog('✅ Saved dedup key to KV');
+      }
+    } catch (err) {
+      addLog(`⚠ KV write failed: ${err.message}`);
     }
 
     // 4. Send poll

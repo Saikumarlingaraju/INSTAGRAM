@@ -9,6 +9,8 @@ export default function handler(req, res) {
   const hasToken = !!process.env.TELEGRAM_BOT_TOKEN;
   const hasChatId = !!process.env.TELEGRAM_CHAT_ID;
   const hasCronSecret = !!process.env.CRON_SECRET;
+  const hasKvUrl = !!process.env.KV_REST_API_URL;
+  const hasKvToken = !!process.env.KV_REST_API_TOKEN;
 
   const status = hasToken && hasChatId ? 'healthy' : 'misconfigured';
 
@@ -19,6 +21,8 @@ export default function handler(req, res) {
       TELEGRAM_BOT_TOKEN: hasToken ? '✅ set' : '❌ missing',
       TELEGRAM_CHAT_ID: hasChatId ? '✅ set' : '❌ missing',
       CRON_SECRET: hasCronSecret ? '✅ set' : '⚠ missing (cron unprotected)',
+      KV_REST_API_URL: hasKvUrl ? '✅ set' : '⚠ missing (KV dedup disabled)',
+      KV_REST_API_TOKEN: hasKvToken ? '✅ set' : '⚠ missing (KV dedup disabled)',
     },
     cron: {
       schedule: '2:45 UTC (8:15 IST) daily',

@@ -5,6 +5,13 @@ import { loadImageForRendering } from '../utils/loadImage';
 import { renderAnimatedFrame } from '../utils/renderAnimatedFrame';
 import { TOTAL_FRAMES, FPS } from '../utils/constants';
 
+const normalizeHeadline = (text = '') =>
+  text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
 // ═══════════════════════════════════════════════════════
 //  useAutoSend — Telegram send pipeline + auto-polling
 // ═══════════════════════════════════════════════════════
@@ -108,6 +115,7 @@ export function useAutoSend({
         setLastSentHeadline(headline);
         setLastSentAt(new Date().toLocaleString());
         localStorage.setItem('hitam-ai-last-headline', headline);
+        localStorage.setItem('hitam-ai-last-headline-key', normalizeHeadline(headline));
         localStorage.setItem('hitam-ai-last-sent-at', new Date().toLocaleString());
         addLog(`✅ All sent! Headline: "${headline}"`);
       } catch (err) {
@@ -132,9 +140,12 @@ export function useAutoSend({
     if (!storyData || !loadedImage || sending) return;
 
     const currentHeadline = storyData['Headline'] || '';
-    const alreadySent = localStorage.getItem('hitam-ai-last-headline');
+    const currentHeadlineKey = normalizeHeadline(currentHeadline);
+    const savedHeadline = localStorage.getItem('hitam-ai-last-headline') || '';
+    const savedHeadlineKey =
+      localStorage.getItem('hitam-ai-last-headline-key') || normalizeHeadline(savedHeadline);
 
-    if (currentHeadline && currentHeadline === alreadySent) {
+    if (currentHeadlineKey && currentHeadlineKey === savedHeadlineKey) {
       addLog('⚠️ Already sent — check Telegram!');
       alert(
         `This story was already sent to Telegram!\n\n"${currentHeadline}"\n\nCheck your Telegram group — no need to send again.`
@@ -164,9 +175,12 @@ export function useAutoSend({
       try {
         const latest = await fetchLatestStory();
         const headline = latest['Headline'] || '';
+        const headlineKey = normalizeHeadline(headline);
         const savedHeadline = localStorage.getItem('hitam-ai-last-headline') || '';
+        const savedHeadlineKey =
+          localStorage.getItem('hitam-ai-last-headline-key') || normalizeHeadline(savedHeadline);
 
-        if (headline && headline !== savedHeadline) {
+        if (headlineKey && headlineKey !== savedHeadlineKey) {
           addLog(`🆕 New story detected: "${headline}"`);
           setStoryData(latest);
 

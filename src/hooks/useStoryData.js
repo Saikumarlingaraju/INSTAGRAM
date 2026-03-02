@@ -114,9 +114,6 @@ export function useStoryData() {
         setStoryData(data);
         setLoading(false);
         const hl = data['Headline'] || '';
-        if (hl) {
-          localStorage.setItem('hitam-ai-last-headline', hl);
-        }
         addLog(`Loaded story: "${hl}"`);
       })
       .catch((err) => {

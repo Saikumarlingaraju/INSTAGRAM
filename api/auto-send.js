@@ -186,21 +186,37 @@ async function sendMessage(api, chatId, text) {
   }, 'sendMessage');
 }
 
+function normalizeHeadline(text = '') {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 // ── Dedup: check recent bot messages for this headline ──
 async function wasAlreadySent(api, chatId, headline) {
   try {
-    // Use getUpdates with a small limit to check recent outgoing messages
-    const res = await fetch(`${api}/getUpdates?limit=20&allowed_updates=["channel_post","message"]`);
+    const headlineKey = normalizeHeadline(headline);
+    if (!headlineKey) return false;
+
+    // Use a larger window to reduce duplicate resends on later days.
+    const res = await fetch(`${api}/getUpdates?limit=100&allowed_updates=["channel_post","message"]`);
     const data = await res.json();
 
     if (!data.ok || !data.result) return false;
 
-    // Check if any recent message/caption contains this headline
+    // Check recent outgoing bot messages in this chat.
     for (const update of data.result) {
       const msg = update.message || update.channel_post;
       if (!msg) continue;
+      if (String(msg.chat?.id) !== String(chatId)) continue;
+      const isOutgoingBotMsg = msg.from?.is_bot || msg.sender_chat?.id;
+      if (!isOutgoingBotMsg) continue;
+
       const text = msg.text || msg.caption || '';
-      if (text.includes(headline)) {
+      const textKey = normalizeHeadline(text);
+      if (textKey.includes(headlineKey)) {
         return true;
       }
     }

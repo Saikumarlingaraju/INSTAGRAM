@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { GOOGLE_SHEETS_CSV_URL } from '../utils/constants';
 import { createTheme, DEFAULT_THEME } from '../utils/theme';
-import { proxyImageUrl } from '../utils/proxyImage';
+import { loadImageForRendering } from '../utils/loadImage';
 
 // ═══════════════════════════════════════════════════════
 //  GOOGLE FONTS — loaded via FontFace API
@@ -129,44 +129,55 @@ export function useStoryData() {
   useEffect(() => {
     if (!storyData || !fontsReady) return;
 
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.src = proxyImageUrl(storyData['Image URL']);
+    let cancelled = false;
 
-    img.onload = async () => {
-      let cropRect = null;
+    (async () => {
       try {
-        const smartcrop = (await import('smartcrop')).default;
-        const result = await smartcrop.crop(img, {
-          width: 1080,
-          height: 1920,
-          minScale: 1.0,
-        });
-        cropRect = result.topCrop;
-        setSmartcropRect(cropRect);
-        console.log('✅ smartcrop:', cropRect);
+        const img = await loadImageForRendering(storyData['Image URL']);
+        if (cancelled) return;
+
+        let cropRect = null;
+        try {
+          const smartcrop = (await import('smartcrop')).default;
+          const result = await smartcrop.crop(img, {
+            width: 1080,
+            height: 1920,
+            minScale: 1.0,
+          });
+          cropRect = result.topCrop;
+          if (!cancelled) {
+            setSmartcropRect(cropRect);
+          }
+          console.log('✅ smartcrop:', cropRect);
+        } catch (e) {
+          console.warn('smartcrop failed, using center-crop fallback:', e);
+        }
+
+        if (!cancelled) {
+          setLoadedImage(img);
+        }
+
+        let theme = DEFAULT_THEME;
+        try {
+          const ColorThief = (await import('colorthief')).default;
+          const colorThief = new ColorThief();
+          const dominant = colorThief.getColor(img);
+          const palette = colorThief.getPalette(img, 6);
+          theme = createTheme(dominant, palette);
+          if (!cancelled) {
+            setColorTheme(theme);
+          }
+          console.log('✅ Color palette extracted');
+        } catch (e) {
+          console.warn('Color Thief failed, using default theme:', e);
+        }
       } catch (e) {
-        console.warn('smartcrop failed, using center-crop fallback:', e);
+        console.error('Failed to load the background image:', e?.message || e);
       }
+    })();
 
-      setLoadedImage(img);
-
-      let theme = DEFAULT_THEME;
-      try {
-        const ColorThief = (await import('colorthief')).default;
-        const colorThief = new ColorThief();
-        const dominant = colorThief.getColor(img);
-        const palette = colorThief.getPalette(img, 6);
-        theme = createTheme(dominant, palette);
-        setColorTheme(theme);
-        console.log('✅ Color palette extracted');
-      } catch (e) {
-        console.warn('Color Thief failed, using default theme:', e);
-      }
-    };
-
-    img.onerror = () => {
-      console.error('Failed to load the background image. Check CORS policy.');
+    return () => {
+      cancelled = true;
     };
   }, [storyData, fontsReady]);
 

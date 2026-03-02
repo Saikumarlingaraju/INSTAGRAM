@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { sendPhoto, sendVideo, sendPoll } from '../utils/telegram';
 import { createTheme, DEFAULT_THEME } from '../utils/theme';
-import { proxyImageUrl } from '../utils/proxyImage';
+import { loadImageForRendering } from '../utils/loadImage';
 
 // ═══════════════════════════════════════════════════════
 //  useAutoSend — Telegram send pipeline + auto-polling
@@ -150,14 +150,7 @@ export function useAutoSend({
 
           addLog('Waiting for image to load & render…');
 
-          const img = new Image();
-          img.crossOrigin = 'anonymous';
-          img.src = proxyImageUrl(latest['Image URL']);
-
-          await new Promise((resolve, reject) => {
-            img.onload = resolve;
-            img.onerror = () => reject(new Error('Image failed to load'));
-          });
+          const img = await loadImageForRendering(latest['Image URL']);
 
           let crop = null;
           try {
@@ -194,7 +187,7 @@ export function useAutoSend({
           addLog('Checked sheet — no new story');
         }
       } catch (err) {
-        addLog(`⚠ Poll failed: ${err.message}`);
+        addLog(`⚠ Poll failed: ${err?.message || 'Unknown error'}`);
       }
 
       const interval = getInterval();

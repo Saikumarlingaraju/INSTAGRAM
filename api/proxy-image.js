@@ -9,30 +9,62 @@
 
 const ALLOWED_HOSTS = [
   'drive.google.com',
-  'lh3.googleusercontent.com',
-  'lh4.googleusercontent.com',
-  'lh5.googleusercontent.com',
-  'lh6.googleusercontent.com',
+  'googleusercontent.com',
   'docs.google.com',
   'drive.usercontent.google.com',
 ];
 
 const MAX_SIZE = 15 * 1024 * 1024; // 15 MB
 
+function sanitizeUrlInput(input) {
+  if (typeof input !== 'string') return '';
+  return input.trim().replace(/^"|"$/g, '');
+}
+
+function extractGoogleDriveFileId(url) {
+  try {
+    const parsed = new URL(url);
+    const queryId = parsed.searchParams.get('id');
+    if (queryId) return queryId;
+
+    const pathMatch = parsed.pathname.match(/\/file\/d\/([^/]+)/i);
+    if (pathMatch?.[1]) return pathMatch[1];
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function buildGoogleDriveDownloadUrl(fileId) {
+  return `https://drive.google.com/uc?export=download&id=${encodeURIComponent(fileId)}`;
+}
+
+async function fetchUpstream(url) {
+  return fetch(url, {
+    redirect: 'follow',
+    headers: {
+      'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      Accept: 'image/*,*/*;q=0.8',
+    },
+  });
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { url } = req.query;
-  if (!url) {
+  const cleanUrl = sanitizeUrlInput(req.query?.url);
+  if (!cleanUrl) {
     return res.status(400).json({ error: 'Missing "url" query parameter' });
   }
 
   // Validate the URL
   let parsed;
   try {
-    parsed = new URL(url);
+    parsed = new URL(cleanUrl);
   } catch {
     return res.status(400).json({ error: 'Invalid URL' });
   }
@@ -51,15 +83,20 @@ export default async function handler(req, res) {
   }
 
   try {
-    const response = await fetch(url, {
-      redirect: 'follow',
-      headers: {
-        // Mimic browser request to avoid Google Drive blocking
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        Accept: 'image/*,*/*;q=0.8',
-      },
-    });
+    let response = await fetchUpstream(cleanUrl);
+
+    if (response.ok) {
+      const contentType = response.headers.get('content-type') || '';
+      const isImage = contentType.toLowerCase().startsWith('image/');
+
+      if (!isImage) {
+        const fileId = extractGoogleDriveFileId(cleanUrl);
+        if (fileId) {
+          const retryUrl = buildGoogleDriveDownloadUrl(fileId);
+          response = await fetchUpstream(retryUrl);
+        }
+      }
+    }
 
     if (!response.ok) {
       return res
@@ -82,6 +119,12 @@ export default async function handler(req, res) {
     // Determine content type
     const contentType =
       response.headers.get('content-type') || 'image/jpeg';
+
+    if (!contentType.toLowerCase().startsWith('image/')) {
+      return res.status(502).json({
+        error: `Upstream returned non-image content-type: ${contentType}`,
+      });
+    }
 
     // Set CORS and caching headers
     res.setHeader('Access-Control-Allow-Origin', '*');

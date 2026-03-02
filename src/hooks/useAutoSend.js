@@ -12,6 +12,21 @@ const normalizeHeadline = (text = '') =>
     .replace(/\s+/g, ' ')
     .trim();
 
+const LS_LAST_HEADLINE = 'hitam-ai-last-headline';
+const LS_LAST_HEADLINE_KEY = 'hitam-ai-last-headline-key';
+const LS_LAST_SENT_AT = 'hitam-ai-last-sent-at';
+const LS_SENT_CONFIRMED = 'hitam-ai-last-send-confirmed';
+
+const getSavedDedupKey = () => {
+  const confirmed = localStorage.getItem(LS_SENT_CONFIRMED) === '1';
+  if (!confirmed) return '';
+
+  const savedHeadline = localStorage.getItem(LS_LAST_HEADLINE) || '';
+  const savedHeadlineKey =
+    localStorage.getItem(LS_LAST_HEADLINE_KEY) || normalizeHeadline(savedHeadline);
+  return savedHeadlineKey;
+};
+
 // ═══════════════════════════════════════════════════════
 //  useAutoSend — Telegram send pipeline + auto-polling
 // ═══════════════════════════════════════════════════════
@@ -41,6 +56,21 @@ export function useAutoSend({
   const [nextCheckIn, setNextCheckIn] = useState(0);
   const sendingRef = useRef(false);
   const sendToTelegramRef = useRef(null);
+
+  // ── One-time migration: ignore legacy dedup values from old builds ──
+  useEffect(() => {
+    const hasLegacy =
+      !!localStorage.getItem(LS_LAST_HEADLINE) ||
+      !!localStorage.getItem(LS_LAST_HEADLINE_KEY) ||
+      !!localStorage.getItem(LS_LAST_SENT_AT);
+    const confirmed = localStorage.getItem(LS_SENT_CONFIRMED) === '1';
+
+    if (hasLegacy && !confirmed) {
+      localStorage.removeItem(LS_LAST_HEADLINE);
+      localStorage.removeItem(LS_LAST_HEADLINE_KEY);
+      localStorage.removeItem(LS_LAST_SENT_AT);
+    }
+  }, []);
 
   // ── Send to Telegram pipeline ──
   const sendToTelegram = useCallback(
@@ -114,9 +144,10 @@ export function useAutoSend({
         setSendStep('done');
         setLastSentHeadline(headline);
         setLastSentAt(new Date().toLocaleString());
-        localStorage.setItem('hitam-ai-last-headline', headline);
-        localStorage.setItem('hitam-ai-last-headline-key', normalizeHeadline(headline));
-        localStorage.setItem('hitam-ai-last-sent-at', new Date().toLocaleString());
+        localStorage.setItem(LS_LAST_HEADLINE, headline);
+        localStorage.setItem(LS_LAST_HEADLINE_KEY, normalizeHeadline(headline));
+        localStorage.setItem(LS_LAST_SENT_AT, new Date().toLocaleString());
+        localStorage.setItem(LS_SENT_CONFIRMED, '1');
         addLog(`✅ All sent! Headline: "${headline}"`);
       } catch (err) {
         setSendStep('error');
@@ -141,9 +172,7 @@ export function useAutoSend({
 
     const currentHeadline = storyData['Headline'] || '';
     const currentHeadlineKey = normalizeHeadline(currentHeadline);
-    const savedHeadline = localStorage.getItem('hitam-ai-last-headline') || '';
-    const savedHeadlineKey =
-      localStorage.getItem('hitam-ai-last-headline-key') || normalizeHeadline(savedHeadline);
+    const savedHeadlineKey = getSavedDedupKey();
 
     if (currentHeadlineKey && currentHeadlineKey === savedHeadlineKey) {
       addLog('⚠️ Already sent — check Telegram!');
@@ -176,9 +205,7 @@ export function useAutoSend({
         const latest = await fetchLatestStory();
         const headline = latest['Headline'] || '';
         const headlineKey = normalizeHeadline(headline);
-        const savedHeadline = localStorage.getItem('hitam-ai-last-headline') || '';
-        const savedHeadlineKey =
-          localStorage.getItem('hitam-ai-last-headline-key') || normalizeHeadline(savedHeadline);
+        const savedHeadlineKey = getSavedDedupKey();
 
         if (headlineKey && headlineKey !== savedHeadlineKey) {
           addLog(`🆕 New story detected: "${headline}"`);

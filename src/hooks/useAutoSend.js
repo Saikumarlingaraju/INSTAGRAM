@@ -135,7 +135,7 @@ export function useAutoSend({
         setRecording(false);
         setRecordProgress(0);
 
-        await sendVideo(mp4Blob, `🎬 *${headline}* — Animated Story`);
+        await sendVideo(mp4Blob, caption);
         addLog('✅ Animated video sent');
 
         // Step 3: Send Poll

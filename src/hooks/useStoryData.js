@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { GOOGLE_SHEETS_CSV_URL } from '../utils/constants';
 import { createTheme, DEFAULT_THEME } from '../utils/theme';
 import { loadImageForRendering } from '../utils/loadImage';
+import { normalizeStoryRow } from '../utils/normalizeRow';
 
 // ═══════════════════════════════════════════════════════
 //  GOOGLE FONTS — loaded via FontFace API
@@ -91,10 +92,11 @@ export function useStoryData() {
         Papa.parse(csvText, {
           header: true,
           skipEmptyLines: true,
+          transformHeader: (h) => h.trim(),
           complete: (results) => {
             const data = results.data;
             if (data.length > 0) {
-              resolve(data[data.length - 1]);
+              resolve(normalizeStoryRow(data[data.length - 1]));
             } else {
               reject(new Error('No data found'));
             }

@@ -4,6 +4,8 @@ import { createTheme, DEFAULT_THEME } from '../utils/theme';
 import { loadImageForRendering } from '../utils/loadImage';
 import { renderAnimatedFrame } from '../utils/renderAnimatedFrame';
 import { TOTAL_FRAMES, FPS } from '../utils/constants';
+import { normalizeStoryRow } from '../utils/normalizeRow';
+import { getContentTypeConfig } from '../utils/contentTypes';
 
 const normalizeHeadline = (text = '') =>
   text
@@ -24,7 +26,9 @@ const getSavedDedupKey = () => {
   const savedHeadline = localStorage.getItem(LS_LAST_HEADLINE) || '';
   const savedHeadlineKey =
     localStorage.getItem(LS_LAST_HEADLINE_KEY) || normalizeHeadline(savedHeadline);
-  return savedHeadlineKey;
+  // Support new composite key format: contentType::headlineKey
+  const savedContentType = localStorage.getItem('hitam-ai-last-content-type') || '';
+  return savedContentType ? `${savedContentType}::${savedHeadlineKey}` : savedHeadlineKey;
 };
 
 // ═══════════════════════════════════════════════════════
@@ -83,8 +87,10 @@ export function useAutoSend({
       const summary = data['News Summary'] || '';
       const pollQ = data['Poll Question'] || '';
       const pollOpts = data['Poll Options'] || '';
+      const contentType = data['Content Type'] || 'ai_news';
+      const ctConfig = getContentTypeConfig(contentType);
 
-      const caption = `🚀 *${headline}*\n\n📰 ${summary}`;
+      const caption = `${ctConfig.emoji} *${headline}*\n\n📰 ${summary}`;
 
       try {
         // Step 1: Send PNG — render to offscreen canvas (avoids DOM canvas race)
@@ -148,6 +154,7 @@ export function useAutoSend({
         localStorage.setItem(LS_LAST_HEADLINE_KEY, normalizeHeadline(headline));
         localStorage.setItem(LS_LAST_SENT_AT, new Date().toLocaleString());
         localStorage.setItem(LS_SENT_CONFIRMED, '1');
+        localStorage.setItem('hitam-ai-last-content-type', contentType);
         addLog(`✅ All sent! Headline: "${headline}"`);
       } catch (err) {
         setSendStep('error');
@@ -172,9 +179,12 @@ export function useAutoSend({
 
     const currentHeadline = storyData['Headline'] || '';
     const currentHeadlineKey = normalizeHeadline(currentHeadline);
-    const savedHeadlineKey = getSavedDedupKey();
+    const currentContentType = storyData['Content Type'] || 'ai_news';
+    const currentDedupKey = `${currentContentType}::${currentHeadlineKey}`;
+    const savedDedupKey = getSavedDedupKey();
 
-    if (currentHeadlineKey && currentHeadlineKey === savedHeadlineKey) {
+    // Support both old (headline-only) and new (contentType::headline) key formats
+    if (currentHeadlineKey && (currentDedupKey === savedDedupKey || currentHeadlineKey === savedDedupKey)) {
       addLog('⚠️ Already sent — check Telegram!');
       alert(
         `This story was already sent to Telegram!\n\n"${currentHeadline}"\n\nCheck your Telegram group — no need to send again.`
@@ -205,9 +215,11 @@ export function useAutoSend({
         const latest = await fetchLatestStory();
         const headline = latest['Headline'] || '';
         const headlineKey = normalizeHeadline(headline);
-        const savedHeadlineKey = getSavedDedupKey();
+        const latestContentType = latest['Content Type'] || 'ai_news';
+        const currentDedupKey = `${latestContentType}::${headlineKey}`;
+        const savedDedupKey = getSavedDedupKey();
 
-        if (headlineKey && headlineKey !== savedHeadlineKey) {
+        if (headlineKey && currentDedupKey !== savedDedupKey && headlineKey !== savedDedupKey) {
           addLog(`🆕 New story detected: "${headline}"`);
           setStoryData(latest);
 

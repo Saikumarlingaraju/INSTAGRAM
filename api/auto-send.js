@@ -11,6 +11,8 @@
 // ═══════════════════════════════════════════════════════════════
 
 import { renderStoryOnServer } from './lib/serverCanvas.js';
+import { normalizeStoryRow } from '../src/utils/normalizeRow.js';
+import { getContentTypeConfig } from '../src/utils/contentTypes.js';
 
 const GOOGLE_SHEETS_CSV_URL =
   'https://docs.google.com/spreadsheets/d/e/2PACX-1vRtDSB1S74HHrypW_cogBnPX51sdHluVtF_eSOqPGslCVUEo-o9k5P2zvNeu4pKjImju_YwaMiCJp9t/pub?gid=0&single=true&output=csv';
@@ -338,12 +340,14 @@ export default async function handler(req, res) {
       return res.status(200).json({ status: 'no_data', log });
     }
 
-    const latest = rows[rows.length - 1];
+    const latest = normalizeStoryRow(rows[rows.length - 1]);
     const headline = latest['Headline'] || '';
     const summary = latest['News Summary'] || '';
     const imageUrl = latest['Image URL'] || '';
     const pollQuestion = latest['Poll Question'] || '';
     const pollOptions = latest['Poll Options'] || '';
+    const contentType = latest['Content Type'] || 'ai_news';
+    const ctConfig = getContentTypeConfig(contentType);
 
     addLog(`Latest story: "${headline}"`);
 
@@ -353,7 +357,7 @@ export default async function handler(req, res) {
     }
 
     const headlineKey = normalizeHeadline(headline);
-    const dedupKey = `hitam:sent_story:${headlineKey}`;
+    const dedupKey = `hitam:sent_story:${contentType}::${headlineKey}`;
 
     // 2. Dedup check — KV first (persistent), Telegram history fallback
     addLog('Checking for duplicates…');
@@ -393,18 +397,18 @@ export default async function handler(req, res) {
       try {
         const pngBuffer = await renderStoryOnServer(latest);
         addLog('✅ Story rendered — sending to Telegram…');
-        const caption = `🚀 *${headline}*\n\n📰 ${summary}\n\n_— HITAM AI Club Daily Story_`;
+        const caption = `${ctConfig.emoji} *${headline}*\n\n📰 ${summary}\n\n_— HITAM AI Club Daily Story_`;
         await sendPhotoBuffer(cfg.api, cfg.chatId, pngBuffer, caption);
         addLog('✅ Rendered story sent');
       } catch (renderErr) {
         addLog(`⚠ Server render failed: ${renderErr.message} — falling back to raw image`);
-        const caption = `🚀 *${headline}*\n\n📰 ${summary}\n\n_— HITAM AI Club Daily Story_`;
+        const caption = `${ctConfig.emoji} *${headline}*\n\n📰 ${summary}\n\n_— HITAM AI Club Daily Story_`;
         await sendPhotoByUrl(cfg.api, cfg.chatId, imageUrl, caption);
         addLog('✅ Raw image sent (fallback)');
       }
     } else {
       addLog('No image URL — sending as text message');
-      await sendMessage(cfg.api, cfg.chatId, `🚀 *${headline}*\n\n📰 ${summary}\n\n_— HITAM AI Club Daily Story_`);
+      await sendMessage(cfg.api, cfg.chatId, `${ctConfig.emoji} *${headline}*\n\n📰 ${summary}\n\n_— HITAM AI Club Daily Story_`);
       addLog('✅ Text message sent');
     }
 

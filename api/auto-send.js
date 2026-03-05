@@ -10,7 +10,7 @@
 //  (set in Vercel Dashboard → Settings → Environment Variables)
 // ═══════════════════════════════════════════════════════════════
 
-import { renderStoryOnServer } from './lib/serverCanvas.js';
+import { renderStoryOnServer, renderStoryGif } from './lib/serverCanvas.js';
 import { normalizeStoryRow } from '../src/utils/normalizeRow.js';
 import { getContentTypeConfig } from '../src/utils/contentTypes.js';
 
@@ -140,6 +140,29 @@ async function sendPhotoByUrl(api, chatId, imageUrl, caption) {
     if (!data.ok) throw new Error(`sendPhoto failed: ${data.description}`);
     return data;
   }, 'sendPhoto');
+}
+
+// Send animated GIF as Telegram animation (auto-loops, looks like video)
+async function sendAnimation(api, chatId, gifBuffer, caption) {
+  return withRetry(async () => {
+    const formData = new FormData();
+    formData.append('chat_id', chatId);
+    formData.append('caption', caption);
+    formData.append('parse_mode', 'Markdown');
+    formData.append(
+      'animation',
+      new Blob([gifBuffer], { type: 'image/gif' }),
+      'hitam-ai-story.gif'
+    );
+
+    const res = await fetch(`${api}/sendAnimation`, {
+      method: 'POST',
+      body: formData,
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(`sendAnimation failed: ${data.description}`);
+    return data;
+  }, 'sendAnimation');
 }
 
 async function sendPoll(api, chatId, question, optionsStr) {
@@ -391,24 +414,40 @@ export default async function handler(req, res) {
       return res.status(200).json({ status: 'already_sent', headline, log });
     }
 
-    // 3. Render/send story
+    // 3. Render/send story — animated GIF first, static PNG fallback
+    const caption = `${ctConfig.emoji} *${headline}*\n\n📰 ${summary}\n\n_— HITAM AI Club Daily Story_`;
+    let sentAnimation = false;
+
     if (imageUrl) {
-      addLog('Rendering story design server-side…');
+      // Try animated GIF first (appears as looping video in Telegram)
       try {
-        const pngBuffer = await renderStoryOnServer(latest);
-        addLog('✅ Story rendered — sending to Telegram…');
-        const caption = `${ctConfig.emoji} *${headline}*\n\n📰 ${summary}\n\n_— HITAM AI Club Daily Story_`;
-        await sendPhotoBuffer(cfg.api, cfg.chatId, pngBuffer, caption);
-        addLog('✅ Rendered story sent');
-      } catch (renderErr) {
-        addLog(`⚠ Server render failed: ${renderErr.message} — falling back to raw image`);
-        const caption = `${ctConfig.emoji} *${headline}*\n\n📰 ${summary}\n\n_— HITAM AI Club Daily Story_`;
-        await sendPhotoByUrl(cfg.api, cfg.chatId, imageUrl, caption);
-        addLog('✅ Raw image sent (fallback)');
+        addLog('Rendering animated story GIF…');
+        const gifBuffer = await renderStoryGif(latest);
+        addLog(`✅ GIF rendered (${(gifBuffer.length / 1024).toFixed(0)} KB) — sending to Telegram…`);
+        await sendAnimation(cfg.api, cfg.chatId, gifBuffer, caption);
+        addLog('✅ Animated story sent');
+        sentAnimation = true;
+      } catch (gifErr) {
+        addLog(`⚠ GIF render/send failed: ${gifErr.message} — trying static PNG…`);
+      }
+
+      // If GIF failed, send static rendered PNG
+      if (!sentAnimation) {
+        try {
+          addLog('Rendering static story PNG…');
+          const pngBuffer = await renderStoryOnServer(latest);
+          addLog('✅ PNG rendered — sending to Telegram…');
+          await sendPhotoBuffer(cfg.api, cfg.chatId, pngBuffer, caption);
+          addLog('✅ Rendered story sent');
+        } catch (renderErr) {
+          addLog(`⚠ Server render failed: ${renderErr.message} — falling back to raw image`);
+          await sendPhotoByUrl(cfg.api, cfg.chatId, imageUrl, caption);
+          addLog('✅ Raw image sent (fallback)');
+        }
       }
     } else {
       addLog('No image URL — sending as text message');
-      await sendMessage(cfg.api, cfg.chatId, `${ctConfig.emoji} *${headline}*\n\n📰 ${summary}\n\n_— HITAM AI Club Daily Story_`);
+      await sendMessage(cfg.api, cfg.chatId, caption);
       addLog('✅ Text message sent');
     }
 

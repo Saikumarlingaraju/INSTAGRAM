@@ -43,7 +43,7 @@ async function encodeVideo({ imageBitmap, cropRect, storyData, theme }) {
         selectedCodec = c;
         break;
       }
-    } catch (e) {
+    } catch {
       // try next
     }
   }

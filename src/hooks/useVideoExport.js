@@ -26,8 +26,8 @@ export function useVideoExport(canvasRef) {
   // ── Generate MP4 via Web Worker (preferred) ──
   const generateMp4ViaWorker = useCallback(
     (data, img, crop, theme, onProgress) => {
-      return new Promise(async (resolve, reject) => {
-        try {
+      return new Promise((resolve, reject) => {
+        (async () => {
           // Convert HTMLImageElement → ImageBitmap (transferable)
           const bitmap = await createImageBitmap(img);
 
@@ -70,9 +70,7 @@ export function useVideoExport(canvasRef) {
             },
             [bitmap] // Transfer ownership
           );
-        } catch (err) {
-          reject(err);
-        }
+        })().catch(reject);
       });
     },
     []
@@ -120,7 +118,7 @@ export function useVideoExport(canvasRef) {
             selectedCodec = c;
             break;
           }
-        } catch (e) {
+        } catch {
           // try next
         }
       }

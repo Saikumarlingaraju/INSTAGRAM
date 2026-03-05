@@ -4,7 +4,6 @@ import { createTheme, DEFAULT_THEME } from '../utils/theme';
 import { loadImageForRendering } from '../utils/loadImage';
 import { renderAnimatedFrame } from '../utils/renderAnimatedFrame';
 import { TOTAL_FRAMES, FPS } from '../utils/constants';
-import { normalizeStoryRow } from '../utils/normalizeRow';
 import { getContentTypeConfig } from '../utils/contentTypes';
 
 const normalizeHeadline = (text = '') =>
@@ -43,7 +42,6 @@ export function useAutoSend({
   colorTheme,
   fetchLatestStory,
   addLog,
-  generatePngBlob,
   generateMp4Blob,
   setRecording,
   setRecordProgress,
@@ -240,7 +238,7 @@ export function useAutoSend({
               minScale: 1.0,
             });
             crop = result.topCrop;
-          } catch (e) {
+          } catch {
             // fallback to center crop
           }
 
@@ -251,7 +249,7 @@ export function useAutoSend({
             const dominant = ct.getColor(img);
             const palette = ct.getPalette(img, 6);
             theme = createTheme(dominant, palette);
-          } catch (e) {
+          } catch {
             // fallback
           }
 

@@ -24,6 +24,7 @@ async function withRetry(fn, label = 'call', maxRetries = 3) {
       const isLast = attempt === maxRetries;
       const isRateLimit = err.message?.includes('429');
       const delay = isRateLimit ? 5000 * attempt : 1000 * Math.pow(2, attempt - 1);
+      console.warn(`⚠ ${label} attempt ${attempt}/${maxRetries} failed: ${err.message}`);
       if (isLast) throw err;
       await new Promise((r) => setTimeout(r, delay));
     }
@@ -125,7 +126,7 @@ export default async function handler(req, res) {
           body: JSON.stringify({
             chat_id: chatId,
             question,
-            options: options.map((text) => ({ text })),
+            options,
             is_anonymous: false,
           }),
         });

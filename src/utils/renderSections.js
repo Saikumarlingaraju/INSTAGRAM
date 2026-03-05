@@ -390,7 +390,7 @@ export function drawSummaryCard(ctx, cursorY, summaryText, sourceText, frame, T,
 //  §11b  DUAL CARD (myth/fact or comparison) → returns cursorY
 // ═══════════════════════════════════════════════════════════════
 
-export function drawDualCard(ctx, cursorY, part1, part2, label1, label2, color1Rgb, color2Rgb, frame, T, theme) {
+export function drawDualCard(ctx, cursorY, part1, part2, label1, label2, color1Rgb, color2Rgb, frame, T) {
   const cardAlpha = interpolate(frame - T.cardReveal, [0, 20], [0, 1], CLAMP);
   const cardSlide = interpolate(frame - T.cardReveal, [0, 20], [40, 0], CLAMP);
 
@@ -703,7 +703,6 @@ export function drawVisualPollOptions(ctx, pollOptions, frame, T, theme) {
     ctx.globalAlpha = pzAlpha * chipAlpha;
 
     // Chip background
-    const hue = i / options.length;
     const colorRgb = i % 2 === 0 ? theme.accentRgb : theme.warmRgb;
     ctx.fillStyle = `rgba(${colorRgb}, 0.15)`;
     roundRect(ctx, chipX, chipY, chipW, chipH, chipH / 2);

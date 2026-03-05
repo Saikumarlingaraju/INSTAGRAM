@@ -1,7 +1,7 @@
 // ═══════════════════════════════════════════════════════════════
 //  Vercel Serverless Cron — Auto-Send to Telegram
 //
-//  Runs daily at 8:15 AM IST (2:45 AM UTC) via Vercel Cron.
+//  Runs daily at 7:45 AM IST (2:15 AM UTC) via Vercel Cron.
 //  Fetches the latest row from Google Sheets, renders the
 //  Instagram story design using @napi-rs/canvas + renderAnimatedFrame,
 //  then sends the rendered PNG + caption + poll to Telegram.
@@ -13,6 +13,7 @@
 import { renderStoryOnServer, renderStoryGif } from './lib/serverCanvas.js';
 import { normalizeStoryRow } from '../src/utils/normalizeRow.js';
 import { getContentTypeConfig } from '../src/utils/contentTypes.js';
+import Papa from 'papaparse';
 
 const GOOGLE_SHEETS_CSV_URL =
   'https://docs.google.com/spreadsheets/d/e/2PACX-1vRtDSB1S74HHrypW_cogBnPX51sdHluVtF_eSOqPGslCVUEo-o9k5P2zvNeu4pKjImju_YwaMiCJp9t/pub?gid=0&single=true&output=csv';
@@ -33,54 +34,14 @@ function getConfig() {
   };
 }
 
-// ── Simple CSV parser ──
+// ── Robust CSV parser (supports quoted commas/newlines) ──
 function parseCSV(csvText) {
-  const lines = csvText.split('\n').filter((l) => l.trim());
-  if (lines.length < 2) return [];
-
-  const headers = parseCSVLine(lines[0]);
-  const rows = [];
-
-  for (let i = 1; i < lines.length; i++) {
-    const values = parseCSVLine(lines[i]);
-    const row = {};
-    headers.forEach((h, idx) => {
-      row[h] = values[idx] || '';
-    });
-    rows.push(row);
-  }
-  return rows;
-}
-
-function parseCSVLine(line) {
-  const result = [];
-  let current = '';
-  let inQuotes = false;
-
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
-    if (inQuotes) {
-      if (ch === '"' && line[i + 1] === '"') {
-        current += '"';
-        i++;
-      } else if (ch === '"') {
-        inQuotes = false;
-      } else {
-        current += ch;
-      }
-    } else {
-      if (ch === '"') {
-        inQuotes = true;
-      } else if (ch === ',') {
-        result.push(current.trim());
-        current = '';
-      } else {
-        current += ch;
-      }
-    }
-  }
-  result.push(current.trim());
-  return result;
+  const { data } = Papa.parse(csvText, {
+    header: true,
+    skipEmptyLines: true,
+    transformHeader: (h) => h.trim(),
+  });
+  return Array.isArray(data) ? data : [];
 }
 
 // ── Retry with exponential backoff ──
@@ -97,6 +58,19 @@ async function withRetry(fn, label = 'call', maxRetries = 3) {
       console.warn(`⚠ ${label} attempt ${attempt}/${maxRetries} failed: ${err.message}. Retrying in ${delay}ms…`);
       await new Promise((r) => setTimeout(r, delay));
     }
+  }
+}
+
+async function withTimeout(promise, ms, label) {
+  let timer;
+  const timeoutPromise = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -184,7 +158,7 @@ async function sendPoll(api, chatId, question, optionsStr) {
       body: JSON.stringify({
         chat_id: chatId,
         question,
-        options: options.map((text) => ({ text })),
+        options,
         is_anonymous: false,
       }),
     });
@@ -422,7 +396,7 @@ export default async function handler(req, res) {
       // Try animated GIF first (appears as looping video in Telegram)
       try {
         addLog('Rendering animated story GIF…');
-        const gifBuffer = await renderStoryGif(latest);
+        const gifBuffer = await withTimeout(renderStoryGif(latest), 35000, 'GIF render');
         addLog(`✅ GIF rendered (${(gifBuffer.length / 1024).toFixed(0)} KB) — sending to Telegram…`);
         await sendAnimation(cfg.api, cfg.chatId, gifBuffer, caption);
         addLog('✅ Animated story sent');

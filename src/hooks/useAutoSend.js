@@ -203,8 +203,9 @@ export function useAutoSend({
       const now = new Date();
       const hour = now.getHours();
       const min = now.getMinutes();
-      if (hour === 7 && min >= 50) return 2 * 60 * 1000;
-      if (hour === 8 && min <= 20) return 2 * 60 * 1000;
+      // Fast-poll around n8n workflow time (7:30-8:30 AM IST)
+      if (hour === 7 && min >= 30) return 2 * 60 * 1000;
+      if (hour === 8 && min <= 30) return 2 * 60 * 1000;
       return 10 * 60 * 1000;
     };
 

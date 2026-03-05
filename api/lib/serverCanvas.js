@@ -146,64 +146,62 @@ export async function renderStoryOnServer(storyData) {
 // ═══════════════════════════════════════════════════════
 //  renderStoryGif — animated GIF
 //
-//  Renders at half resolution (540×960) for speed + size.
-//  Samples 40 key frames across the animation timeline
-//  to show the progressive reveal effect.
-//  Typical output: 2-5 MB, well within Telegram's 50 MB limit.
+//  Optimized for Vercel Hobby plan (60s max).
+//  Renders at 1/3 resolution (360×640) for speed.
+//  Samples 20 key frames — shows the progressive reveal.
+//  Typical output: 1-3 MB, finishes in ~15-25 seconds.
 // ═══════════════════════════════════════════════════════
 export async function renderStoryGif(storyData) {
   const { img, theme, cropRect } = await prepareRender(storyData);
 
-  // Render at half resolution for speed
-  const GIF_W = 540;
-  const GIF_H = 960;
+  // 1/3 resolution for fast encode + small file
+  const GIF_W = 360;
+  const GIF_H = 640;
   const FULL_W = 1080;
   const FULL_H = 1920;
 
-  // Sample 40 frames spread across the animation timeline
-  // Focus more frames on the reveal phase (0-180) and fewer on the tail
-  const keyFrames = [];
-  for (let i = 0; i < 30; i++) keyFrames.push(Math.round(i * 6));    // 0-174, every 6th frame
-  for (let i = 0; i < 5; i++) keyFrames.push(180 + i * 8);           // 180-212
-  for (let i = 0; i < 5; i++) keyFrames.push(220 + i * 4);           // 220-236
-  keyFrames.push(TOTAL_FRAMES - 1);                                    // 239 (final)
+  // 20 key frames spread across the animation timeline
+  const keyFrames = [
+    0, 10, 20, 30, 40, 55,   // early: bg, overlay, corners, badge
+    65, 80, 95, 110,          // mid: headline words reveal
+    125, 140, 155, 170,       // mid-late: divider, card, summary
+    185, 200, 215,            // late: poll section, dots
+    230, 235,                 // near-end: branding
+    TOTAL_FRAMES - 1,         // final frame (fully revealed)
+  ];
 
-  // Full-resolution canvas for rendering
+  // Full-res canvas for rendering (renderAnimatedFrame uses 1080×1920 coords)
   const fullCanvas = createCanvas(FULL_W, FULL_H);
   const fullCtx = fullCanvas.getContext('2d');
 
-  // Half-resolution canvas for downscaling
-  const halfCanvas = createCanvas(GIF_W, GIF_H);
-  const halfCtx = halfCanvas.getContext('2d');
+  // Small canvas for downscaling
+  const smallCanvas = createCanvas(GIF_W, GIF_H);
+  const smallCtx = smallCanvas.getContext('2d');
 
-  // GIF encoder at half resolution
   const encoder = new GIFEncoder(GIF_W, GIF_H, 'neuquant', true);
-  encoder.setDelay(120);     // ~8 fps effective playback
-  encoder.setQuality(15);    // Lower = better quality but slower (10-30 range)
+  encoder.setDelay(200);     // 200ms per frame → ~5 fps, 4 seconds total
+  encoder.setQuality(20);    // Fast encoding (10=best, 30=fastest)
   encoder.setRepeat(0);      // Loop forever
   encoder.start();
 
   for (const frame of keyFrames) {
-    // Render full resolution frame
     renderAnimatedFrame({
       ctx: fullCtx, img, cropRect, storyData, theme,
       frame,
       fps: FPS,
     });
 
-    // Downscale to half resolution
-    halfCtx.clearRect(0, 0, GIF_W, GIF_H);
-    halfCtx.drawImage(fullCanvas, 0, 0, GIF_W, GIF_H);
+    // Downscale to 1/3
+    smallCtx.clearRect(0, 0, GIF_W, GIF_H);
+    smallCtx.drawImage(fullCanvas, 0, 0, GIF_W, GIF_H);
 
     // Add frame to GIF
-    const imageData = halfCtx.getImageData(0, 0, GIF_W, GIF_H);
-    encoder.addFrame(imageData);
+    encoder.addFrame(smallCtx);
   }
 
-  // Hold last frame longer (800ms)
-  const lastFrame = halfCtx.getImageData(0, 0, GIF_W, GIF_H);
-  encoder.setDelay(800);
-  encoder.addFrame(lastFrame);
+  // Hold last frame longer (1.5 sec)
+  encoder.setDelay(1500);
+  encoder.addFrame(smallCtx);
 
   encoder.finish();
   return encoder.out.getData();

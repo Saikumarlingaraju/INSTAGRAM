@@ -44,5 +44,10 @@ export default function handler(req, res) {
       schedule: '2:15 UTC (7:45 IST) daily',
       endpoint: '/api/auto-send',
     },
+    controls: {
+      dryRun: '/api/auto-send?secret=CRON_SECRET&dryRun=1',
+      forceSend: '/api/auto-send?secret=CRON_SECRET&force=1',
+      notes: 'forceSend works only for authenticated manual requests',
+    },
   });
 }

@@ -328,6 +328,8 @@ export default async function handler(req, res) {
   const cronSecret = process.env.CRON_SECRET;
   const isCron = req.headers['authorization'] === `Bearer ${cronSecret}`;
   const isManualAuth = cronSecret && req.query?.secret === cronSecret;
+  const isDryRun = req.query?.dryRun === '1' || req.query?.dryRun === 'true';
+  const isForce = (req.query?.force === '1' || req.query?.force === 'true') && isManualAuth;
 
   if (!isCron && !isManualAuth) {
     return res.status(401).json({
@@ -365,6 +367,7 @@ export default async function handler(req, res) {
 
   const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   let lockKey = null;
+  let lockAcquired = false;
 
   try {
     // 1. Fetch latest row from Google Sheets
@@ -400,17 +403,34 @@ export default async function handler(req, res) {
     const dedupKey = `hitam:sent_story:v2:${storyFingerprint}`;
     lockKey = `hitam:sent_lock:v2:${storyFingerprint}`;
     addLog(`Dedup fingerprint: ${storyFingerprint.slice(0, 12)}…`);
+    if (isDryRun) {
+      addLog('Dry run mode enabled — no Telegram send will occur');
+    }
+    if (isForce) {
+      addLog('Force mode enabled — dedup skip is allowed for this manual run');
+    }
 
     // 2. Dedup check — exact-story fingerprint in KV
     addLog('Checking for duplicates…');
     const sentRecord = await kvGet(dedupKey);
-    if (sentRecord) {
+    if (sentRecord && !isForce) {
       addLog(`⚠ Already sent: "${headline}" — skipping`);
       return res.status(200).json({ status: 'already_sent', headline, log });
     }
 
+    if (isDryRun) {
+      const dryRunStatus = sentRecord && !isForce ? 'already_sent_dry_run' : 'would_send';
+      return res.status(200).json({
+        status: dryRunStatus,
+        headline,
+        fingerprint: storyFingerprint,
+        dedupKey,
+        force: isForce,
+        log,
+      });
+    }
+
     // 2b. Acquire short lock to prevent overlapping sends for same story fingerprint.
-    let lockAcquired = false;
     try {
       lockAcquired = await kvSetNx(lockKey, runId, 120);
     } catch (err) {
@@ -424,7 +444,7 @@ export default async function handler(req, res) {
 
     // 2c. Re-check after lock to avoid races.
     const sentAfterLock = await kvGet(dedupKey);
-    if (sentAfterLock) {
+    if (sentAfterLock && !isForce) {
       addLog(`⚠ Already sent after lock: "${headline}" — skipping`);
       return res.status(200).json({ status: 'already_sent', headline, log });
     }
@@ -508,9 +528,12 @@ export default async function handler(req, res) {
 
     return res.status(500).json({ status: 'error', error: err.message, log });
   } finally {
-    if (lockKey) {
+    if (lockKey && lockAcquired) {
       try {
-        await kvDel(lockKey);
+        const lockValue = await kvGet(lockKey);
+        if (lockValue === runId) {
+          await kvDel(lockKey);
+        }
       } catch {
         // non-fatal
       }

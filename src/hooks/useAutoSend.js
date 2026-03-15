@@ -18,6 +18,8 @@ const LS_LAST_HEADLINE_KEY = 'hitam-ai-last-headline-key';
 const LS_LAST_SENT_AT = 'hitam-ai-last-sent-at';
 const LS_SENT_CONFIRMED = 'hitam-ai-last-send-confirmed';
 const LS_LAST_STORY_FINGERPRINT = 'hitam-ai-last-story-fingerprint';
+const LS_APP_SCHEMA_VERSION = 'hitam-ai-app-schema-version';
+const APP_SCHEMA_VERSION = 'v2-force-manual-send';
 
 const normalizeFingerprintText = (text = '') =>
   String(text)
@@ -87,6 +89,18 @@ export function useAutoSend({
 
   // ── One-time migration: ignore legacy dedup values from old builds ──
   useEffect(() => {
+    const schemaVersion = localStorage.getItem(LS_APP_SCHEMA_VERSION) || '';
+    if (schemaVersion !== APP_SCHEMA_VERSION) {
+      localStorage.removeItem(LS_LAST_HEADLINE);
+      localStorage.removeItem(LS_LAST_HEADLINE_KEY);
+      localStorage.removeItem(LS_LAST_SENT_AT);
+      localStorage.removeItem(LS_SENT_CONFIRMED);
+      localStorage.removeItem('hitam-ai-last-content-type');
+      localStorage.removeItem(LS_LAST_STORY_FINGERPRINT);
+      localStorage.setItem(LS_APP_SCHEMA_VERSION, APP_SCHEMA_VERSION);
+      return;
+    }
+
     const hasLegacy =
       !!localStorage.getItem(LS_LAST_HEADLINE) ||
       !!localStorage.getItem(LS_LAST_HEADLINE_KEY) ||

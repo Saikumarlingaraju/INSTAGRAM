@@ -8,6 +8,24 @@
 
 const PROXY = '/api/send-telegram';
 
+async function parseProxyResponse(res, action) {
+  const raw = await res.text();
+
+  let data;
+  try {
+    data = raw ? JSON.parse(raw) : {};
+  } catch {
+    const preview = raw ? raw.slice(0, 180) : 'empty response body';
+    throw new Error(`${action} failed (HTTP ${res.status}): ${preview}`);
+  }
+
+  if (!res.ok || !data.ok) {
+    throw new Error(data.error || `${action} failed (HTTP ${res.status})`);
+  }
+
+  return data;
+}
+
 /**
  * Send a photo (PNG blob) to Telegram via server proxy.
  */
@@ -17,9 +35,7 @@ export async function sendPhoto(blob, caption = '') {
   form.append('file', blob, 'hitam-ai-story.png');
 
   const res = await fetch(PROXY, { method: 'POST', body: form });
-  const data = await res.json();
-  if (!data.ok) throw new Error(data.error || 'sendPhoto failed');
-  return data;
+  return parseProxyResponse(res, 'sendPhoto');
 }
 
 /**
@@ -31,9 +47,7 @@ export async function sendVideo(blob, caption = '') {
   form.append('file', blob, 'hitam-ai-story.mp4');
 
   const res = await fetch(PROXY, { method: 'POST', body: form });
-  const data = await res.json();
-  if (!data.ok) throw new Error(data.error || 'sendVideo failed');
-  return data;
+  return parseProxyResponse(res, 'sendVideo');
 }
 
 /**
@@ -55,9 +69,7 @@ export async function sendPoll(question, optionsStr) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action: 'poll', question, options }),
   });
-  const data = await res.json();
-  if (!data.ok) throw new Error(data.error || 'sendPoll failed');
-  return data;
+  return parseProxyResponse(res, 'sendPoll');
 }
 
 /**
@@ -69,7 +81,5 @@ export async function sendMessage(text) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action: 'message', text }),
   });
-  const data = await res.json();
-  if (!data.ok) throw new Error(data.error || 'sendMessage failed');
-  return data;
+  return parseProxyResponse(res, 'sendMessage');
 }

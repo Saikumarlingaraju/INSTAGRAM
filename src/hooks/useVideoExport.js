@@ -1,6 +1,41 @@
 import { useState, useCallback, useRef } from 'react';
 import { renderAnimatedFrame } from '../utils/renderAnimatedFrame';
 
+const FULL_W = 1080;
+const FULL_H = 1920;
+const DEFAULT_TOTAL_FRAMES = 240;
+const DEFAULT_FPS = 30;
+
+const ENCODE_PROFILES = {
+  default: {
+    outputWidth: FULL_W,
+    outputHeight: FULL_H,
+    bitrate: 6_000_000,
+    fps: DEFAULT_FPS,
+    totalFrames: DEFAULT_TOTAL_FRAMES,
+  },
+  telegram: {
+    // Keep under Vercel body limits for /api/send-telegram multipart uploads.
+    outputWidth: 540,
+    outputHeight: 960,
+    bitrate: 2_200_000,
+    fps: DEFAULT_FPS,
+    totalFrames: DEFAULT_TOTAL_FRAMES,
+  },
+};
+
+function resolveEncodeOptions(options = {}) {
+  const profile = options.profile || 'default';
+  const base = ENCODE_PROFILES[profile] || ENCODE_PROFILES.default;
+  return {
+    outputWidth: options.outputWidth || base.outputWidth,
+    outputHeight: options.outputHeight || base.outputHeight,
+    bitrate: options.bitrate || base.bitrate,
+    fps: options.fps || base.fps,
+    totalFrames: options.totalFrames || base.totalFrames,
+  };
+}
+
 // ═══════════════════════════════════════════════════════
 //  useVideoExport — PNG blob, MP4 blob, download handlers
 //
@@ -25,11 +60,12 @@ export function useVideoExport(canvasRef) {
 
   // ── Generate MP4 via Web Worker (preferred) ──
   const generateMp4ViaWorker = useCallback(
-    (data, img, crop, theme, onProgress) => {
+    (data, img, crop, theme, onProgress, encodeOptions = {}) => {
       return new Promise((resolve, reject) => {
         (async () => {
           // Convert HTMLImageElement → ImageBitmap (transferable)
           const bitmap = await createImageBitmap(img);
+          const settings = resolveEncodeOptions(encodeOptions);
 
           const worker = new Worker(
             new URL('../workers/videoExport.worker.js', import.meta.url),
@@ -66,6 +102,7 @@ export function useVideoExport(canvasRef) {
                 cropRect: crop,
                 storyData: data,
                 theme,
+                encodeOptions: settings,
               },
             },
             [bitmap] // Transfer ownership
@@ -78,22 +115,31 @@ export function useVideoExport(canvasRef) {
 
   // ── Generate MP4 on main thread (fallback) ──
   const generateMp4Blob = useCallback(
-    async (data, img, crop, theme, onProgress) => {
+    async (data, img, crop, theme, onProgress, encodeOptions = {}) => {
       if (typeof VideoEncoder === 'undefined') {
         throw new Error('WebCodecs not supported');
       }
 
-      const totalFrames = 240;
-      const fps = 30;
-      const W = 1080;
-      const H = 1920;
+      const settings = resolveEncodeOptions(encodeOptions);
+      const {
+        outputWidth,
+        outputHeight,
+        bitrate,
+        fps,
+        totalFrames,
+      } = settings;
 
       const { Muxer, ArrayBufferTarget } = await import('mp4-muxer');
 
-      const offscreen = document.createElement('canvas');
-      offscreen.width = W;
-      offscreen.height = H;
-      const offCtx = offscreen.getContext('2d');
+      const renderCanvas = document.createElement('canvas');
+      renderCanvas.width = FULL_W;
+      renderCanvas.height = FULL_H;
+      const renderCtx = renderCanvas.getContext('2d');
+
+      const encodeCanvas = document.createElement('canvas');
+      encodeCanvas.width = outputWidth;
+      encodeCanvas.height = outputHeight;
+      const encodeCtx = encodeCanvas.getContext('2d');
 
       // Find working codec
       const codecs = [
@@ -108,9 +154,9 @@ export function useVideoExport(canvasRef) {
         try {
           const support = await VideoEncoder.isConfigSupported({
             codec: c.codec,
-            width: W,
-            height: H,
-            bitrate: 6_000_000,
+            width: outputWidth,
+            height: outputHeight,
+            bitrate,
             framerate: fps,
             hardwareAcceleration: 'prefer-software',
           });
@@ -130,7 +176,7 @@ export function useVideoExport(canvasRef) {
       const target = new ArrayBufferTarget();
       const muxer = new Muxer({
         target,
-        video: { codec: 'avc', width: W, height: H },
+        video: { codec: 'avc', width: outputWidth, height: outputHeight },
         fastStart: 'in-memory',
       });
 
@@ -142,9 +188,9 @@ export function useVideoExport(canvasRef) {
 
       encoder.configure({
         codec: selectedCodec.codec,
-        width: W,
-        height: H,
-        bitrate: 6_000_000,
+        width: outputWidth,
+        height: outputHeight,
+        bitrate,
         framerate: fps,
         hardwareAcceleration: 'prefer-software',
       });
@@ -160,7 +206,7 @@ export function useVideoExport(canvasRef) {
         }
 
         renderAnimatedFrame({
-          ctx: offCtx,
+          ctx: renderCtx,
           img,
           cropRect: crop,
           storyData: data,
@@ -169,7 +215,15 @@ export function useVideoExport(canvasRef) {
           fps,
         });
 
-        const videoFrame = new VideoFrame(offscreen, {
+        if (outputWidth !== FULL_W || outputHeight !== FULL_H) {
+          encodeCtx.clearRect(0, 0, outputWidth, outputHeight);
+          encodeCtx.drawImage(renderCanvas, 0, 0, outputWidth, outputHeight);
+        } else {
+          encodeCtx.clearRect(0, 0, outputWidth, outputHeight);
+          encodeCtx.drawImage(renderCanvas, 0, 0);
+        }
+
+        const videoFrame = new VideoFrame(encodeCanvas, {
           timestamp: i * (1_000_000 / fps),
           duration: 1_000_000 / fps,
         });
@@ -199,7 +253,7 @@ export function useVideoExport(canvasRef) {
 
   // ── Smart MP4 generation: prefer worker, fall back to main thread ──
   const generateMp4 = useCallback(
-    async (data, img, crop, theme, onProgress) => {
+    async (data, img, crop, theme, onProgress, encodeOptions = {}) => {
       // Try Web Worker first (keeps UI responsive)
       const canUseWorker =
         typeof Worker !== 'undefined' &&
@@ -208,14 +262,14 @@ export function useVideoExport(canvasRef) {
 
       if (canUseWorker) {
         try {
-          return await generateMp4ViaWorker(data, img, crop, theme, onProgress);
+          return await generateMp4ViaWorker(data, img, crop, theme, onProgress, encodeOptions);
         } catch (err) {
           console.warn('Worker encoding failed, falling back to main thread:', err.message);
           // Fall through to main thread
         }
       }
 
-      return generateMp4Blob(data, img, crop, theme, onProgress);
+      return generateMp4Blob(data, img, crop, theme, onProgress, encodeOptions);
     },
     [generateMp4ViaWorker, generateMp4Blob]
   );

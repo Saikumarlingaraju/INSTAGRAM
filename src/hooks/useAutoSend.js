@@ -167,7 +167,8 @@ export function useAutoSend({
 
         const mp4Blob = await generateMp4Blob(
           data, img, crop, theme,
-          (p) => setRecordProgress(p)
+          (p) => setRecordProgress(p),
+          { profile: 'telegram' }
         );
 
         setRecording(false);

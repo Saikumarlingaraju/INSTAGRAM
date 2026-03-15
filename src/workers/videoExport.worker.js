@@ -15,15 +15,21 @@ const CODECS = [
   { codec: 'avc1.640032', label: 'AVC High L5.0' },
 ];
 
-async function encodeVideo({ imageBitmap, cropRect, storyData, theme }) {
-  const totalFrames = 240;
-  const fps = 30;
-  const W = 1080;
-  const H = 1920;
+async function encodeVideo({ imageBitmap, cropRect, storyData, theme, encodeOptions = {} }) {
+  const totalFrames = encodeOptions.totalFrames || 240;
+  const fps = encodeOptions.fps || 30;
+  const renderW = 1080;
+  const renderH = 1920;
+  const outputW = encodeOptions.outputWidth || renderW;
+  const outputH = encodeOptions.outputHeight || renderH;
+  const bitrate = encodeOptions.bitrate || 6_000_000;
 
-  // Use OffscreenCanvas (no DOM dependency)
-  const offscreen = new OffscreenCanvas(W, H);
-  const offCtx = offscreen.getContext('2d');
+  // Render at full story resolution, encode at chosen output resolution.
+  const renderCanvas = new OffscreenCanvas(renderW, renderH);
+  const renderCtx = renderCanvas.getContext('2d');
+
+  const encodeCanvas = new OffscreenCanvas(outputW, outputH);
+  const encodeCtx = encodeCanvas.getContext('2d');
 
   const { Muxer, ArrayBufferTarget } = await import('mp4-muxer');
 
@@ -33,9 +39,9 @@ async function encodeVideo({ imageBitmap, cropRect, storyData, theme }) {
     try {
       const support = await VideoEncoder.isConfigSupported({
         codec: c.codec,
-        width: W,
-        height: H,
-        bitrate: 6_000_000,
+        width: outputW,
+        height: outputH,
+        bitrate,
         framerate: fps,
         hardwareAcceleration: 'prefer-software',
       });
@@ -55,7 +61,7 @@ async function encodeVideo({ imageBitmap, cropRect, storyData, theme }) {
   const target = new ArrayBufferTarget();
   const muxer = new Muxer({
     target,
-    video: { codec: 'avc', width: W, height: H },
+    video: { codec: 'avc', width: outputW, height: outputH },
     fastStart: 'in-memory',
   });
 
@@ -67,9 +73,9 @@ async function encodeVideo({ imageBitmap, cropRect, storyData, theme }) {
 
   encoder.configure({
     codec: selectedCodec.codec,
-    width: W,
-    height: H,
-    bitrate: 6_000_000,
+    width: outputW,
+    height: outputH,
+    bitrate,
     framerate: fps,
     hardwareAcceleration: 'prefer-software',
   });
@@ -85,7 +91,7 @@ async function encodeVideo({ imageBitmap, cropRect, storyData, theme }) {
     }
 
     renderAnimatedFrame({
-      ctx: offCtx,
+      ctx: renderCtx,
       img: imageBitmap,
       cropRect,
       storyData,
@@ -94,7 +100,15 @@ async function encodeVideo({ imageBitmap, cropRect, storyData, theme }) {
       fps,
     });
 
-    const videoFrame = new VideoFrame(offscreen, {
+    if (outputW !== renderW || outputH !== renderH) {
+      encodeCtx.clearRect(0, 0, outputW, outputH);
+      encodeCtx.drawImage(renderCanvas, 0, 0, outputW, outputH);
+    } else {
+      encodeCtx.clearRect(0, 0, outputW, outputH);
+      encodeCtx.drawImage(renderCanvas, 0, 0);
+    }
+
+    const videoFrame = new VideoFrame(encodeCanvas, {
       timestamp: i * (1_000_000 / fps),
       duration: 1_000_000 / fps,
     });

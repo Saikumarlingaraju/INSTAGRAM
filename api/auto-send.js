@@ -10,7 +10,7 @@
 //  (set in Vercel Dashboard → Settings → Environment Variables)
 // ═══════════════════════════════════════════════════════════════
 
-import { renderStoryOnServer, renderStoryGif } from './lib/serverCanvas.js';
+import { renderStoryGif } from './lib/serverCanvas.js';
 import { normalizeStoryRow } from '../src/utils/normalizeRow.js';
 import { getContentTypeConfig } from '../src/utils/contentTypes.js';
 import Papa from 'papaparse';
@@ -76,47 +76,6 @@ async function withTimeout(promise, ms, label) {
 }
 
 // ── Telegram API helpers ──
-async function sendPhotoBuffer(api, chatId, pngBuffer, caption) {
-  return withRetry(async () => {
-    const formData = new FormData();
-    formData.append('chat_id', chatId);
-    formData.append('caption', caption);
-    formData.append('parse_mode', 'Markdown');
-    formData.append(
-      'photo',
-      new Blob([pngBuffer], { type: 'image/png' }),
-      'hitam-ai-story.png'
-    );
-
-    const res = await fetch(`${api}/sendPhoto`, {
-      method: 'POST',
-      body: formData,
-    });
-    const data = await res.json();
-    if (!data.ok) throw new Error(`sendPhoto failed: ${data.description}`);
-    return data;
-  }, 'sendPhoto');
-}
-
-// Fallback: send by URL if canvas rendering fails
-async function sendPhotoByUrl(api, chatId, imageUrl, caption) {
-  return withRetry(async () => {
-    const res = await fetch(`${api}/sendPhoto`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        photo: imageUrl,
-        caption,
-        parse_mode: 'Markdown',
-      }),
-    });
-    const data = await res.json();
-    if (!data.ok) throw new Error(`sendPhoto failed: ${data.description}`);
-    return data;
-  }, 'sendPhoto');
-}
-
 // Send animated GIF as Telegram animation (auto-loops, looks like video)
 async function sendAnimation(api, chatId, gifBuffer, caption) {
   return withRetry(async () => {
@@ -449,37 +408,15 @@ export default async function handler(req, res) {
       return res.status(200).json({ status: 'already_sent', headline, log });
     }
 
-    // 3. Render/send story — animated GIF first, static PNG fallback
+    // 3. Render/send story — animated only
     const caption = `${ctConfig.emoji} *${headline}*\n\n📰 ${summary}\n\n_— HITAM AI Club Daily Story_`;
-    let sentAnimation = false;
 
     if (imageUrl) {
-      // Try animated GIF first (appears as looping video in Telegram)
-      try {
-        addLog('Rendering animated story GIF…');
-        const gifBuffer = await withTimeout(renderStoryGif(latest), 35000, 'GIF render');
-        addLog(`✅ GIF rendered (${(gifBuffer.length / 1024).toFixed(0)} KB) — sending to Telegram…`);
-        await sendAnimation(cfg.api, cfg.chatId, gifBuffer, caption);
-        addLog('✅ Animated story sent');
-        sentAnimation = true;
-      } catch (gifErr) {
-        addLog(`⚠ GIF render/send failed: ${gifErr.message} — trying static PNG…`);
-      }
-
-      // If GIF failed, send static rendered PNG
-      if (!sentAnimation) {
-        try {
-          addLog('Rendering static story PNG…');
-          const pngBuffer = await renderStoryOnServer(latest);
-          addLog('✅ PNG rendered — sending to Telegram…');
-          await sendPhotoBuffer(cfg.api, cfg.chatId, pngBuffer, caption);
-          addLog('✅ Rendered story sent');
-        } catch (renderErr) {
-          addLog(`⚠ Server render failed: ${renderErr.message} — falling back to raw image`);
-          await sendPhotoByUrl(cfg.api, cfg.chatId, imageUrl, caption);
-          addLog('✅ Raw image sent (fallback)');
-        }
-      }
+      addLog('Rendering animated story GIF…');
+      const gifBuffer = await withTimeout(renderStoryGif(latest), 35000, 'GIF render');
+      addLog(`✅ GIF rendered (${(gifBuffer.length / 1024).toFixed(0)} KB) — sending to Telegram…`);
+      await sendAnimation(cfg.api, cfg.chatId, gifBuffer, caption);
+      addLog('✅ Animated story sent');
     } else {
       addLog('No image URL — sending as text message');
       await sendMessage(cfg.api, cfg.chatId, caption);

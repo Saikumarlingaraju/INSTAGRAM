@@ -1,9 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { sendPhoto, sendVideo, sendPoll } from '../utils/telegram';
+import { sendVideo, sendPoll } from '../utils/telegram';
 import { createTheme, DEFAULT_THEME } from '../utils/theme';
 import { loadImageForRendering } from '../utils/loadImage';
-import { renderAnimatedFrame } from '../utils/renderAnimatedFrame';
-import { TOTAL_FRAMES, FPS } from '../utils/constants';
 import { getContentTypeConfig } from '../utils/contentTypes';
 
 const normalizeHeadline = (text = '') =>
@@ -131,35 +129,7 @@ export function useAutoSend({
       const caption = `${ctConfig.emoji} *${headline}*\n\n📰 ${summary}`;
 
       try {
-        // Step 1: Send PNG — render to offscreen canvas (avoids DOM canvas race)
-        setSendStep('png');
-        addLog('Sending static image to Telegram…');
-        const offscreen = document.createElement('canvas');
-        offscreen.width = 1080;
-        offscreen.height = 1920;
-        const offCtx = offscreen.getContext('2d');
-        if (!offCtx) {
-          throw new Error('Failed to create offscreen canvas context');
-        }
-        renderAnimatedFrame({
-          ctx: offCtx,
-          img,
-          cropRect: crop,
-          storyData: data,
-          theme,
-          frame: TOTAL_FRAMES - 1,
-          fps: FPS,
-        });
-        const pngBlob = await new Promise((resolve, reject) => {
-          offscreen.toBlob(
-            (blob) => (blob ? resolve(blob) : reject(new Error('toBlob failed'))),
-            'image/png'
-          );
-        });
-        await sendPhoto(pngBlob, caption);
-        addLog('✅ Static image sent');
-
-        // Step 2: Send MP4
+        // Step 1: Send MP4 only
         setSendStep('mp4');
         addLog('Rendering & sending animated video…');
         setRecording(true);
@@ -177,7 +147,7 @@ export function useAutoSend({
         await sendVideo(mp4Blob, caption);
         addLog('✅ Animated video sent');
 
-        // Step 3: Send Poll
+        // Step 2: Send Poll
         if (pollQ && pollOpts) {
           setSendStep('poll');
           addLog(`Sending poll: "${pollQ}"`);

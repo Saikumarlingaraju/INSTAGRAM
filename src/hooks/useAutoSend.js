@@ -1,6 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { sendVideo, sendPoll } from '../utils/telegram';
-import { createTheme, DEFAULT_THEME } from '../utils/theme';
 import { loadImageForRendering } from '../utils/loadImage';
 import { getContentTypeConfig } from '../utils/contentTypes';
 
@@ -72,7 +71,7 @@ export function useAutoSend({
   setRecording,
   setRecordProgress,
 }) {
-  const [autoEnabled, setAutoEnabled] = useState(true);
+  const [autoEnabled, setAutoEnabled] = useState(false);
   const [lastSentHeadline, setLastSentHeadline] = useState(
     () => localStorage.getItem('hitam-ai-last-headline') || ''
   );
@@ -83,7 +82,6 @@ export function useAutoSend({
   const [sendStep, setSendStep] = useState('');
   const [nextCheckIn, setNextCheckIn] = useState(0);
   const sendingRef = useRef(false);
-  const sendToTelegramRef = useRef(null);
 
   // ── One-time migration: ignore legacy dedup values from old builds ──
   useEffect(() => {
@@ -129,22 +127,46 @@ export function useAutoSend({
       const caption = `${ctConfig.emoji} *${headline}*\n\n📰 ${summary}`;
 
       try {
-        // Step 1: Send MP4 only
+        // Step 1: Send MP4 only (with fallback profile retry)
         setSendStep('mp4');
         addLog('Rendering & sending animated video…');
         setRecording(true);
         setRecordProgress(0);
 
-        const mp4Blob = await generateMp4Blob(
-          data, img, crop, theme,
-          (p) => setRecordProgress(p),
-          { profile: 'telegram' }
-        );
+        const profiles = ['telegram', 'telegram_fallback'];
+        let videoSent = false;
+        let videoErr = null;
+
+        for (const profile of profiles) {
+          try {
+            if (profile === 'telegram_fallback') {
+              addLog('⚠ Retrying video with compact profile…');
+            }
+
+            const mp4Blob = await generateMp4Blob(
+              data,
+              img,
+              crop,
+              theme,
+              (p) => setRecordProgress(p),
+              { profile }
+            );
+
+            await sendVideo(mp4Blob, caption);
+            videoSent = true;
+            break;
+          } catch (err) {
+            videoErr = err;
+          }
+        }
 
         setRecording(false);
         setRecordProgress(0);
 
-        await sendVideo(mp4Blob, caption);
+        if (!videoSent) {
+          throw videoErr || new Error('Animated video send failed');
+        }
+
         addLog('✅ Animated video sent');
 
         // Step 2: Send Poll
@@ -179,9 +201,6 @@ export function useAutoSend({
     },
     [generateMp4Blob, addLog, setRecording, setRecordProgress]
   );
-
-  // Keep ref in sync
-  sendToTelegramRef.current = sendToTelegram;
 
   // ── Manual send (force-send always) ──
   const handleManualSend = useCallback(() => {
@@ -224,34 +243,9 @@ export function useAutoSend({
           addLog(`✅ Image loaded (${img.naturalWidth}×${img.naturalHeight})`);
 
 
-          let crop = null;
-          try {
-            const smartcrop = (await import('smartcrop')).default;
-            const result = await smartcrop.crop(img, {
-              width: 1080,
-              height: 1920,
-              minScale: 1.0,
-            });
-            crop = result.topCrop;
-          } catch {
-            // fallback to center crop
-          }
-
-          let theme = DEFAULT_THEME;
-          try {
-            const ColorThief = (await import('colorthief')).default;
-            const ct = new ColorThief();
-            const dominant = ct.getColor(img);
-            const palette = ct.getPalette(img, 6);
-            theme = createTheme(dominant, palette);
-          } catch {
-            // fallback
-          }
-
           await new Promise((r) => setTimeout(r, 3000));
 
-          addLog('Auto-sending to Telegram…');
-          await sendToTelegramRef.current(latest, img, crop, theme);
+          addLog('Auto-mode monitor: new story detected (server cron will send).');
         } else {
           addLog('Checked sheet — no new story');
         }

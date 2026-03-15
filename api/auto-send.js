@@ -412,15 +412,32 @@ export default async function handler(req, res) {
     const caption = `${ctConfig.emoji} *${headline}*\n\n📰 ${summary}\n\n_— HITAM AI Club Daily Story_`;
 
     if (imageUrl) {
-      addLog('Rendering animated story GIF…');
-      const gifBuffer = await withTimeout(renderStoryGif(latest), 35000, 'GIF render');
-      addLog(`✅ GIF rendered (${(gifBuffer.length / 1024).toFixed(0)} KB) — sending to Telegram…`);
-      await sendAnimation(cfg.api, cfg.chatId, gifBuffer, caption);
-      addLog('✅ Animated story sent');
+      let sent = false;
+      let lastErr = null;
+
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          addLog(`Rendering animated story GIF (attempt ${attempt}/2)…`);
+          const gifBuffer = await withTimeout(renderStoryGif(latest), 35000, 'GIF render');
+          addLog(`✅ GIF rendered (${(gifBuffer.length / 1024).toFixed(0)} KB) — sending to Telegram…`);
+          await sendAnimation(cfg.api, cfg.chatId, gifBuffer, caption);
+          addLog('✅ Animated story sent');
+          sent = true;
+          break;
+        } catch (err) {
+          lastErr = err;
+          addLog(`⚠ Animated send attempt ${attempt} failed: ${err.message}`);
+          if (attempt < 2) {
+            await new Promise((r) => setTimeout(r, 1500));
+          }
+        }
+      }
+
+      if (!sent) {
+        throw new Error(lastErr?.message || 'Animated send failed');
+      }
     } else {
-      addLog('No image URL — sending as text message');
-      await sendMessage(cfg.api, cfg.chatId, caption);
-      addLog('✅ Text message sent');
+      throw new Error('Missing image URL — animation-only mode requires image');
     }
 
     // Mark dedup key after successful primary send (no TTL for exact-story dedup).

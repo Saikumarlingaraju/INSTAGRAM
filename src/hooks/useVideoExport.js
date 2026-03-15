@@ -22,6 +22,14 @@ const ENCODE_PROFILES = {
     fps: DEFAULT_FPS,
     totalFrames: DEFAULT_TOTAL_FRAMES,
   },
+  telegram_fallback: {
+    // Emergency fallback for stricter payload/body limits.
+    outputWidth: 432,
+    outputHeight: 768,
+    bitrate: 1_300_000,
+    fps: DEFAULT_FPS,
+    totalFrames: DEFAULT_TOTAL_FRAMES,
+  },
 };
 
 function resolveEncodeOptions(options = {}) {

@@ -14,6 +14,7 @@ import { renderStoryOnServer, renderStoryGif } from './lib/serverCanvas.js';
 import { normalizeStoryRow } from '../src/utils/normalizeRow.js';
 import { getContentTypeConfig } from '../src/utils/contentTypes.js';
 import Papa from 'papaparse';
+import { createHash } from 'crypto';
 
 const GOOGLE_SHEETS_CSV_URL =
   'https://docs.google.com/spreadsheets/d/e/2PACX-1vRtDSB1S74HHrypW_cogBnPX51sdHluVtF_eSOqPGslCVUEo-o9k5P2zvNeu4pKjImju_YwaMiCJp9t/pub?gid=0&single=true&output=csv';
@@ -185,12 +186,33 @@ async function sendMessage(api, chatId, text) {
   }, 'sendMessage');
 }
 
-function normalizeHeadline(text = '') {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, ' ')
+function normalizeFingerprintText(text = '') {
+  return String(text)
     .replace(/\s+/g, ' ')
-    .trim();
+    .trim()
+    .toLowerCase();
+}
+
+function normalizePollOptionsForFingerprint(options = '') {
+  return String(options)
+    .split('|')
+    .map((o) => normalizeFingerprintText(o))
+    .filter(Boolean)
+    .join('|');
+}
+
+function buildStoryFingerprint(story) {
+  const raw = [
+    normalizeFingerprintText(story['Content Type'] || 'ai_news'),
+    normalizeFingerprintText(story['Headline'] || ''),
+    normalizeFingerprintText(story['News Summary'] || ''),
+    normalizeFingerprintText(story['Poll Question'] || ''),
+    normalizePollOptionsForFingerprint(story['Poll Options'] || ''),
+    normalizeFingerprintText(story['Image URL'] || ''),
+  ].join('||');
+
+  const hash = createHash('sha256').update(raw).digest('hex');
+  return { hash, raw };
 }
 
 function getKvConfig() {
@@ -237,7 +259,8 @@ async function kvSet(key, value, ttlSec = 60 * 60 * 24 * 365) {
   const kv = getKvConfig();
   if (!kv) return false;
 
-  const setUrl = `${kv.url}/set/${encodeURIComponent(key)}/${encodeURIComponent(value)}?EX=${ttlSec}`;
+  const ttlQuery = Number.isFinite(ttlSec) && ttlSec > 0 ? `?EX=${ttlSec}` : '';
+  const setUrl = `${kv.url}/set/${encodeURIComponent(key)}/${encodeURIComponent(value)}${ttlQuery}`;
   const res = await fetch(setUrl, {
     method: 'POST',
     headers: {
@@ -253,37 +276,46 @@ async function kvSet(key, value, ttlSec = 60 * 60 * 24 * 365) {
   return data?.result === 'OK';
 }
 
-// ── Dedup: check recent bot messages for this headline ──
-async function wasAlreadySent(api, chatId, headline) {
-  try {
-    const headlineKey = normalizeHeadline(headline);
-    if (!headlineKey) return false;
+async function kvSetNx(key, value, ttlSec = 120) {
+  const kv = getKvConfig();
+  if (!kv) return false;
 
-    // Use a larger window to reduce duplicate resends on later days.
-    const res = await fetch(`${api}/getUpdates?limit=100&allowed_updates=["channel_post","message"]`);
-    const data = await res.json();
+  const qs = [];
+  if (Number.isFinite(ttlSec) && ttlSec > 0) qs.push(`EX=${ttlSec}`);
+  qs.push('NX=true');
+  const setUrl = `${kv.url}/set/${encodeURIComponent(key)}/${encodeURIComponent(value)}?${qs.join('&')}`;
 
-    if (!data.ok || !data.result) return false;
+  const res = await fetch(setUrl, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${kv.token}`,
+    },
+  });
 
-    // Check recent outgoing bot messages in this chat.
-    for (const update of data.result) {
-      const msg = update.message || update.channel_post;
-      if (!msg) continue;
-      if (String(msg.chat?.id) !== String(chatId)) continue;
-      const isOutgoingBotMsg = msg.from?.is_bot || msg.sender_chat?.id;
-      if (!isOutgoingBotMsg) continue;
-
-      const text = msg.text || msg.caption || '';
-      const textKey = normalizeHeadline(text);
-      if (textKey.includes(headlineKey)) {
-        return true;
-      }
-    }
-    return false;
-  } catch {
-    // If dedup check fails, proceed with send (better to duplicate than miss)
-    return false;
+  if (!res.ok) {
+    throw new Error(`KV set NX failed: HTTP ${res.status}`);
   }
+
+  const data = await res.json();
+  return data?.result === 'OK';
+}
+
+async function kvDel(key) {
+  const kv = getKvConfig();
+  if (!kv) return false;
+
+  const res = await fetch(`${kv.url}/del/${encodeURIComponent(key)}`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${kv.token}`,
+    },
+  });
+
+  if (!res.ok) {
+    throw new Error(`KV del failed: HTTP ${res.status}`);
+  }
+
+  return true;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -323,6 +355,17 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: err.message });
   }
 
+  const kv = getKvConfig();
+  if (!kv) {
+    return res.status(503).json({
+      status: 'dedup_unavailable',
+      error: 'Dedup store is required but not configured. Set KV_REST_API_URL/TOKEN (or Upstash aliases).',
+    });
+  }
+
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  let lockKey = null;
+
   try {
     // 1. Fetch latest row from Google Sheets
     addLog('Fetching Google Sheets…');
@@ -353,38 +396,36 @@ export default async function handler(req, res) {
       return res.status(200).json({ status: 'empty_headline', log });
     }
 
-    const headlineKey = normalizeHeadline(headline);
-    const dedupKey = `hitam:sent_story:${contentType}::${headlineKey}`;
+    const { hash: storyFingerprint } = buildStoryFingerprint(latest);
+    const dedupKey = `hitam:sent_story:v2:${storyFingerprint}`;
+    lockKey = `hitam:sent_lock:v2:${storyFingerprint}`;
+    addLog(`Dedup fingerprint: ${storyFingerprint.slice(0, 12)}…`);
 
-    // 2. Dedup check — KV first (persistent), Telegram history fallback
+    // 2. Dedup check — exact-story fingerprint in KV
     addLog('Checking for duplicates…');
-    let alreadySent = false;
-
-    try {
-      const kvValue = await kvGet(dedupKey);
-      if (kvValue) {
-        alreadySent = true;
-        addLog('KV dedup hit — already sent before');
-      }
-    } catch (err) {
-      addLog(`⚠ KV read failed: ${err.message} — falling back to Telegram history`);
-    }
-
-    if (!alreadySent) {
-      alreadySent = await wasAlreadySent(cfg.api, cfg.chatId, headline);
-      if (alreadySent) {
-        addLog('Telegram history dedup hit — already sent before');
-        try {
-          await kvSet(dedupKey, new Date().toISOString());
-          addLog('Backfilled dedup key in KV');
-        } catch {
-          // non-fatal
-        }
-      }
-    }
-
-    if (alreadySent) {
+    const sentRecord = await kvGet(dedupKey);
+    if (sentRecord) {
       addLog(`⚠ Already sent: "${headline}" — skipping`);
+      return res.status(200).json({ status: 'already_sent', headline, log });
+    }
+
+    // 2b. Acquire short lock to prevent overlapping sends for same story fingerprint.
+    let lockAcquired = false;
+    try {
+      lockAcquired = await kvSetNx(lockKey, runId, 120);
+    } catch (err) {
+      addLog(`⚠ KV lock failed: ${err.message}`);
+    }
+
+    if (!lockAcquired) {
+      addLog(`⚠ Story lock not acquired for ${storyFingerprint.slice(0, 12)}… — likely in-flight`);
+      return res.status(200).json({ status: 'in_progress', headline, log });
+    }
+
+    // 2c. Re-check after lock to avoid races.
+    const sentAfterLock = await kvGet(dedupKey);
+    if (sentAfterLock) {
+      addLog(`⚠ Already sent after lock: "${headline}" — skipping`);
       return res.status(200).json({ status: 'already_sent', headline, log });
     }
 
@@ -425,9 +466,19 @@ export default async function handler(req, res) {
       addLog('✅ Text message sent');
     }
 
-    // Mark dedup key after successful primary send.
+    // Mark dedup key after successful primary send (no TTL for exact-story dedup).
     try {
-      const saved = await kvSet(dedupKey, new Date().toISOString());
+      const saved = await kvSet(
+        dedupKey,
+        JSON.stringify({
+          sentAt: new Date().toISOString(),
+          runId,
+          headline,
+          contentType,
+          fingerprint: storyFingerprint,
+        }),
+        null
+      );
       if (saved) {
         addLog('✅ Saved dedup key to KV');
       }
@@ -443,7 +494,7 @@ export default async function handler(req, res) {
     }
 
     addLog('🎉 All done!');
-    return res.status(200).json({ status: 'sent', headline, log });
+    return res.status(200).json({ status: 'sent', headline, fingerprint: storyFingerprint, log });
   } catch (err) {
     addLog(`❌ Error: ${err.message}`);
     console.error(err);
@@ -456,5 +507,13 @@ export default async function handler(req, res) {
     }
 
     return res.status(500).json({ status: 'error', error: err.message, log });
+  } finally {
+    if (lockKey) {
+      try {
+        await kvDel(lockKey);
+      } catch {
+        // non-fatal
+      }
+    }
   }
 }

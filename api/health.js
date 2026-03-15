@@ -38,9 +38,10 @@ export default function handler(req, res) {
       STORAGE_URL: hasStorageUrl ? '✅ set' : '⚠ missing',
       STORAGE_TOKEN: hasStorageToken ? '✅ set' : '⚠ missing',
       DEDUP_STORE: dedupEnabledAny ? '✅ enabled' : '⚠ disabled',
+      DEDUP_MODE: 'exact_story_fingerprint_v2',
     },
     cron: {
-      schedule: '2:45 UTC (8:15 IST) daily',
+      schedule: '2:15 UTC (7:45 IST) daily',
       endpoint: '/api/auto-send',
     },
   });

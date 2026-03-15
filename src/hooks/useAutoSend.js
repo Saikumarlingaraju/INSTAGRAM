@@ -17,10 +17,36 @@ const LS_LAST_HEADLINE = 'hitam-ai-last-headline';
 const LS_LAST_HEADLINE_KEY = 'hitam-ai-last-headline-key';
 const LS_LAST_SENT_AT = 'hitam-ai-last-sent-at';
 const LS_SENT_CONFIRMED = 'hitam-ai-last-send-confirmed';
+const LS_LAST_STORY_FINGERPRINT = 'hitam-ai-last-story-fingerprint';
+
+const normalizeFingerprintText = (text = '') =>
+  String(text)
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+
+const normalizePollOptionsForFingerprint = (options = '') =>
+  String(options)
+    .split('|')
+    .map((o) => normalizeFingerprintText(o))
+    .filter(Boolean)
+    .join('|');
+
+const buildStoryFingerprint = (story) => [
+  normalizeFingerprintText(story?.['Content Type'] || 'ai_news'),
+  normalizeFingerprintText(story?.['Headline'] || ''),
+  normalizeFingerprintText(story?.['News Summary'] || ''),
+  normalizeFingerprintText(story?.['Poll Question'] || ''),
+  normalizePollOptionsForFingerprint(story?.['Poll Options'] || ''),
+  normalizeFingerprintText(story?.['Image URL'] || ''),
+].join('||');
 
 const getSavedDedupKey = () => {
   const confirmed = localStorage.getItem(LS_SENT_CONFIRMED) === '1';
   if (!confirmed) return '';
+
+  const savedFingerprint = localStorage.getItem(LS_LAST_STORY_FINGERPRINT) || '';
+  if (savedFingerprint) return savedFingerprint;
 
   const savedHeadline = localStorage.getItem(LS_LAST_HEADLINE) || '';
   const savedHeadlineKey =
@@ -153,6 +179,7 @@ export function useAutoSend({
         localStorage.setItem(LS_LAST_SENT_AT, new Date().toLocaleString());
         localStorage.setItem(LS_SENT_CONFIRMED, '1');
         localStorage.setItem('hitam-ai-last-content-type', contentType);
+        localStorage.setItem(LS_LAST_STORY_FINGERPRINT, buildStoryFingerprint(data));
         addLog(`✅ All sent! Headline: "${headline}"`);
       } catch (err) {
         setSendStep('error');
@@ -171,25 +198,10 @@ export function useAutoSend({
   // Keep ref in sync
   sendToTelegramRef.current = sendToTelegram;
 
-  // ── Manual send with dedup check ──
+  // ── Manual send (force-send always) ──
   const handleManualSend = useCallback(() => {
     if (!storyData || !loadedImage || sending) return;
-
-    const currentHeadline = storyData['Headline'] || '';
-    const currentHeadlineKey = normalizeHeadline(currentHeadline);
-    const currentContentType = storyData['Content Type'] || 'ai_news';
-    const currentDedupKey = `${currentContentType}::${currentHeadlineKey}`;
-    const savedDedupKey = getSavedDedupKey();
-
-    // Support both old (headline-only) and new (contentType::headline) key formats
-    if (currentHeadlineKey && (currentDedupKey === savedDedupKey || currentHeadlineKey === savedDedupKey)) {
-      addLog('⚠️ Already sent — check Telegram!');
-      alert(
-        `This story was already sent to Telegram!\n\n"${currentHeadline}"\n\nCheck your Telegram group — no need to send again.`
-      );
-      return;
-    }
-
+    addLog('Manual send triggered — force sending to Telegram…');
     sendToTelegram(storyData, loadedImage, smartcropRect, colorTheme);
   }, [storyData, loadedImage, smartcropRect, colorTheme, sending, sendToTelegram, addLog]);
 
@@ -213,12 +225,10 @@ export function useAutoSend({
       try {
         const latest = await fetchLatestStory();
         const headline = latest['Headline'] || '';
-        const headlineKey = normalizeHeadline(headline);
-        const latestContentType = latest['Content Type'] || 'ai_news';
-        const currentDedupKey = `${latestContentType}::${headlineKey}`;
+        const currentDedupKey = buildStoryFingerprint(latest);
         const savedDedupKey = getSavedDedupKey();
 
-        if (headlineKey && currentDedupKey !== savedDedupKey && headlineKey !== savedDedupKey) {
+        if (headline && currentDedupKey !== savedDedupKey) {
           addLog(`🆕 New story detected: "${headline}"`);
           setStoryData(latest);
 

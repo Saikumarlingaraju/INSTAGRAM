@@ -27,6 +27,7 @@ const AnimatedStory = lazy(() =>
 export default function InstagramStoryBuilder() {
   const canvasRef = useRef(null);
   const [mode, setMode] = useState('static');
+  const [showActivityLog, setShowActivityLog] = useState(false);
   const [viewport, setViewport] = useState(() => ({
     width: typeof window !== 'undefined' ? window.innerWidth : 0,
     height: typeof window !== 'undefined' ? window.innerHeight : 0,
@@ -44,6 +45,10 @@ export default function InstagramStoryBuilder() {
 
   const isMobile = viewport.width > 0 && viewport.width <= 768;
   const isSmallPhone = viewport.width > 0 && viewport.width <= 480;
+
+  useEffect(() => {
+    setShowActivityLog(!isMobile);
+  }, [isMobile]);
 
   const shellStyles = {
     container: {
@@ -114,7 +119,7 @@ export default function InstagramStoryBuilder() {
       width: '100%',
       maxWidth: isMobile ? '100%' : '420px',
       padding: isMobile ? '12px' : '14px 16px',
-      gap: isMobile ? '6px' : '8px',
+      gap: isMobile ? '4px' : '8px',
     },
     statusRow: {
       ...styles.statusRow,
@@ -129,7 +134,7 @@ export default function InstagramStoryBuilder() {
     },
     logContainer: {
       ...styles.logContainer,
-      maxHeight: isMobile ? '120px' : '160px',
+      maxHeight: isMobile ? '92px' : '160px',
     },
   };
 
@@ -322,6 +327,25 @@ export default function InstagramStoryBuilder() {
           </button>
         </div>
 
+        {isMobile && (
+          <button
+            onClick={() => setShowActivityLog((value) => !value)}
+            style={{
+              alignSelf: 'flex-start',
+              border: 'none',
+              background: 'transparent',
+              color: 'rgba(255,255,255,0.55)',
+              fontSize: '11px',
+              padding: '0',
+              cursor: 'pointer',
+            }}
+            aria-expanded={showActivityLog}
+            aria-label={showActivityLog ? 'Hide activity log' : 'Show activity log'}
+          >
+            {showActivityLog ? 'Hide activity log' : 'Show activity log'}
+          </button>
+        )}
+
         {autoEnabled && (
           <div style={shellStyles.statusRow}>
             <span style={{ fontSize: isMobile ? '11px' : '12px', opacity: 0.6 }}>
@@ -341,7 +365,7 @@ export default function InstagramStoryBuilder() {
           </div>
         )}
 
-        {activityLog.length > 0 && (
+        {activityLog.length > 0 && (!isMobile || showActivityLog) && (
           <div style={shellStyles.logContainer}>
             <span style={{ fontSize: isMobile ? '10px' : '11px', fontWeight: 600, opacity: 0.5, marginBottom: '4px' }}>
               Activity Log <span style={{ fontFamily: 'monospace', fontSize: isMobile ? '8px' : '9px', opacity: 0.5 }}>({BUILD_VERSION})</span>
@@ -354,6 +378,12 @@ export default function InstagramStoryBuilder() {
                 <span style={{ fontSize: isMobile ? '10px' : '11px' }}>{entry.msg}</span>
               </div>
             ))}
+          </div>
+        )}
+
+        {isMobile && !showActivityLog && activityLog.length > 0 && (
+          <div style={{ fontSize: '10px', opacity: 0.55, lineHeight: 1.35 }}>
+            Latest: {activityLog[0]?.msg}
           </div>
         )}
       </div>

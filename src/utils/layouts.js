@@ -13,6 +13,7 @@
 
 import { getContentTypeConfig } from './contentTypes.js';
 import { splitTextAtBoundary } from './renderHelpers.js';
+import { createLayoutMetrics } from './layoutMetrics.js';
 import {
   drawBackground,
   drawCornerAccents,
@@ -61,6 +62,7 @@ const T = {
 // ═══════════════════════════════════════════════════════════════
 
 function layoutDefault({ ctx, img, cropRect, storyData, theme, frame, fps, typeConfig }) {
+  const metrics = createLayoutMetrics(storyData, typeConfig);
   drawBackground(ctx, img, cropRect, frame, T);
   drawCornerAccents(ctx, frame, T, theme, fps);
   drawStoryDots(ctx, frame, T);
@@ -68,20 +70,20 @@ function layoutDefault({ ctx, img, cropRect, storyData, theme, frame, fps, typeC
   let cursorY = drawAccentBar(ctx, frame, T, theme);
 
   drawBadge(ctx, cursorY, frame, T, theme, fps,
-    typeConfig.badge, typeConfig.badgeGradientStart, typeConfig.badgeGradientEnd);
-  drawDate(ctx, cursorY, frame, T, storyData['Date']);
+    typeConfig.badge, typeConfig.badgeGradientStart, typeConfig.badgeGradientEnd, metrics);
+  drawDate(ctx, cursorY, frame, T, storyData['Date'], metrics);
 
   cursorY += 36 + 20; // badge height + gap
 
-  cursorY = drawHeadline(ctx, cursorY, storyData['Headline'], frame, T, theme, fps);
+  cursorY = drawHeadline(ctx, cursorY, storyData['Headline'], frame, T, theme, fps, metrics);
   cursorY = drawDivider(ctx, cursorY, frame, T, theme);
-  cursorY = drawSummaryCard(ctx, cursorY, storyData['News Summary'], typeConfig.sourceText, frame, T, theme);
-  cursorY = drawCTA(ctx, cursorY, storyData['CTA Text'], typeConfig.ctaEmoji, frame, T, theme);
+  cursorY = drawSummaryCard(ctx, cursorY, storyData['News Summary'], typeConfig.sourceText, frame, T, theme, metrics);
+  cursorY = drawCTA(ctx, cursorY, storyData['CTA Text'], typeConfig.ctaEmoji, frame, T, theme, {}, metrics);
 
   drawDotGrid(ctx, cursorY, frame, T, theme);
-  drawPollSection(ctx, storyData['Poll Question'], frame, T, theme, fps);
-  drawPollZone(ctx, frame, T, theme);
-  drawBranding(ctx, frame, T, theme);
+  drawPollSection(ctx, storyData['Poll Question'], frame, T, theme, fps, metrics);
+  drawPollZone(ctx, frame, T, theme, metrics);
+  drawBranding(ctx, frame, T, theme, metrics);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -92,6 +94,7 @@ function layoutDefault({ ctx, img, cropRect, storyData, theme, frame, fps, typeC
 // ═══════════════════════════════════════════════════════════════
 
 function layoutComparison({ ctx, img, cropRect, storyData, theme, frame, fps, typeConfig }) {
+  const metrics = createLayoutMetrics(storyData, typeConfig);
   drawBackground(ctx, img, cropRect, frame, T);
   drawCornerAccents(ctx, frame, T, theme, fps);
   drawStoryDots(ctx, frame, T);
@@ -99,12 +102,12 @@ function layoutComparison({ ctx, img, cropRect, storyData, theme, frame, fps, ty
   let cursorY = drawAccentBar(ctx, frame, T, theme);
 
   drawBadge(ctx, cursorY, frame, T, theme, fps,
-    typeConfig.badge, typeConfig.badgeGradientStart, typeConfig.badgeGradientEnd);
-  drawDate(ctx, cursorY, frame, T, storyData['Date']);
+    typeConfig.badge, typeConfig.badgeGradientStart, typeConfig.badgeGradientEnd, metrics);
+  drawDate(ctx, cursorY, frame, T, storyData['Date'], metrics);
 
   cursorY += 36 + 20;
 
-  cursorY = drawHeadline(ctx, cursorY, storyData['Headline'], frame, T, theme, fps);
+  cursorY = drawHeadline(ctx, cursorY, storyData['Headline'], frame, T, theme, fps, metrics);
   cursorY = drawDivider(ctx, cursorY, frame, T, theme);
 
   // Try to split summary for comparison view
@@ -121,22 +124,22 @@ function layoutComparison({ ctx, img, cropRect, storyData, theme, frame, fps, ty
       parts[0], parts[1],
       '🏆 CONTENDER A', '🏆 CONTENDER B',
       theme.primaryRgb, theme.warmRgb,
-      frame, T, theme
+      frame, T, theme, metrics
     );
     // VS circle at the boundary
     const midCardY = vsY + 60; // approximate middle of first card
     drawVsSeparator(ctx, midCardY, frame, T, theme, fps);
   } else {
     // Fallback to single card
-    cursorY = drawSummaryCard(ctx, cursorY, summary, typeConfig.sourceText, frame, T, theme);
+    cursorY = drawSummaryCard(ctx, cursorY, summary, typeConfig.sourceText, frame, T, theme, metrics);
   }
 
-  cursorY = drawCTA(ctx, cursorY, storyData['CTA Text'], typeConfig.ctaEmoji, frame, T, theme);
+  cursorY = drawCTA(ctx, cursorY, storyData['CTA Text'], typeConfig.ctaEmoji, frame, T, theme, {}, metrics);
 
   drawDotGrid(ctx, cursorY, frame, T, theme);
-  drawPollSection(ctx, storyData['Poll Question'], frame, T, theme, fps);
-  drawPollZone(ctx, frame, T, theme);
-  drawBranding(ctx, frame, T, theme);
+  drawPollSection(ctx, storyData['Poll Question'], frame, T, theme, fps, metrics);
+  drawPollZone(ctx, frame, T, theme, metrics);
+  drawBranding(ctx, frame, T, theme, metrics);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -146,6 +149,7 @@ function layoutComparison({ ctx, img, cropRect, storyData, theme, frame, fps, ty
 // ═══════════════════════════════════════════════════════════════
 
 function layoutSpotlight({ ctx, img, cropRect, storyData, theme, frame, fps, typeConfig }) {
+  const metrics = createLayoutMetrics(storyData, typeConfig);
   drawBackground(ctx, img, cropRect, frame, T);
   drawCornerAccents(ctx, frame, T, theme, fps);
   drawStoryDots(ctx, frame, T);
@@ -153,22 +157,22 @@ function layoutSpotlight({ ctx, img, cropRect, storyData, theme, frame, fps, typ
   let cursorY = drawAccentBar(ctx, frame, T, theme);
 
   drawBadge(ctx, cursorY, frame, T, theme, fps,
-    typeConfig.badge, typeConfig.badgeGradientStart, typeConfig.badgeGradientEnd);
-  drawDate(ctx, cursorY, frame, T, storyData['Date']);
+    typeConfig.badge, typeConfig.badgeGradientStart, typeConfig.badgeGradientEnd, metrics);
+  drawDate(ctx, cursorY, frame, T, storyData['Date'], metrics);
 
   cursorY += 36 + 20;
 
-  cursorY = drawHeadline(ctx, cursorY, storyData['Headline'], frame, T, theme, fps);
+  cursorY = drawHeadline(ctx, cursorY, storyData['Headline'], frame, T, theme, fps, metrics);
   cursorY = drawDivider(ctx, cursorY, frame, T, theme);
-  cursorY = drawSummaryCard(ctx, cursorY, storyData['News Summary'], typeConfig.sourceText, frame, T, theme);
+  cursorY = drawSummaryCard(ctx, cursorY, storyData['News Summary'], typeConfig.sourceText, frame, T, theme, metrics);
 
   // Prominent CTA for tool spotlight
-  cursorY = drawCTA(ctx, cursorY, storyData['CTA Text'], typeConfig.ctaEmoji, frame, T, theme, { prominent: true });
+  cursorY = drawCTA(ctx, cursorY, storyData['CTA Text'], typeConfig.ctaEmoji, frame, T, theme, { prominent: true }, metrics);
 
   drawDotGrid(ctx, cursorY, frame, T, theme);
-  drawPollSection(ctx, storyData['Poll Question'], frame, T, theme, fps);
-  drawPollZone(ctx, frame, T, theme);
-  drawBranding(ctx, frame, T, theme);
+  drawPollSection(ctx, storyData['Poll Question'], frame, T, theme, fps, metrics);
+  drawPollZone(ctx, frame, T, theme, metrics);
+  drawBranding(ctx, frame, T, theme, metrics);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -179,6 +183,7 @@ function layoutSpotlight({ ctx, img, cropRect, storyData, theme, frame, fps, typ
 // ═══════════════════════════════════════════════════════════════
 
 function layoutMythFact({ ctx, img, cropRect, storyData, theme, frame, fps, typeConfig }) {
+  const metrics = createLayoutMetrics(storyData, typeConfig);
   drawBackground(ctx, img, cropRect, frame, T);
   drawCornerAccents(ctx, frame, T, theme, fps);
   drawStoryDots(ctx, frame, T);
@@ -186,12 +191,12 @@ function layoutMythFact({ ctx, img, cropRect, storyData, theme, frame, fps, type
   let cursorY = drawAccentBar(ctx, frame, T, theme);
 
   drawBadge(ctx, cursorY, frame, T, theme, fps,
-    typeConfig.badge, typeConfig.badgeGradientStart, typeConfig.badgeGradientEnd);
-  drawDate(ctx, cursorY, frame, T, storyData['Date']);
+    typeConfig.badge, typeConfig.badgeGradientStart, typeConfig.badgeGradientEnd, metrics);
+  drawDate(ctx, cursorY, frame, T, storyData['Date'], metrics);
 
   cursorY += 36 + 20;
 
-  cursorY = drawHeadline(ctx, cursorY, storyData['Headline'], frame, T, theme, fps);
+  cursorY = drawHeadline(ctx, cursorY, storyData['Headline'], frame, T, theme, fps, metrics);
   cursorY = drawDivider(ctx, cursorY, frame, T, theme);
 
   // Try to split summary into myth + fact
@@ -208,19 +213,19 @@ function layoutMythFact({ ctx, img, cropRect, storyData, theme, frame, fps, type
       '❌ MYTH', '✅ FACT',
       '255, 80, 80',     // red tint for myth
       '80, 200, 120',    // green tint for fact
-      frame, T, theme
+      frame, T, theme, metrics
     );
   } else {
     // Fallback to single card
-    cursorY = drawSummaryCard(ctx, cursorY, summary, typeConfig.sourceText, frame, T, theme);
+    cursorY = drawSummaryCard(ctx, cursorY, summary, typeConfig.sourceText, frame, T, theme, metrics);
   }
 
-  cursorY = drawCTA(ctx, cursorY, storyData['CTA Text'], typeConfig.ctaEmoji, frame, T, theme);
+  cursorY = drawCTA(ctx, cursorY, storyData['CTA Text'], typeConfig.ctaEmoji, frame, T, theme, {}, metrics);
 
   drawDotGrid(ctx, cursorY, frame, T, theme);
-  drawPollSection(ctx, storyData['Poll Question'], frame, T, theme, fps);
+  drawPollSection(ctx, storyData['Poll Question'], frame, T, theme, fps, metrics);
   drawPollZone(ctx, frame, T, theme);
-  drawBranding(ctx, frame, T, theme);
+  drawBranding(ctx, frame, T, theme, metrics);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -231,6 +236,7 @@ function layoutMythFact({ ctx, img, cropRect, storyData, theme, frame, fps, type
 // ═══════════════════════════════════════════════════════════════
 
 function layoutDebate({ ctx, img, cropRect, storyData, theme, frame, fps, typeConfig }) {
+  const metrics = createLayoutMetrics(storyData, typeConfig);
   drawBackground(ctx, img, cropRect, frame, T);
   drawCornerAccents(ctx, frame, T, theme, fps);
   drawStoryDots(ctx, frame, T);
@@ -243,18 +249,18 @@ function layoutDebate({ ctx, img, cropRect, storyData, theme, frame, fps, typeCo
 
   cursorY += 36 + 20;
 
-  cursorY = drawHeadline(ctx, cursorY, storyData['Headline'], frame, T, theme, fps);
+  cursorY = drawHeadline(ctx, cursorY, storyData['Headline'], frame, T, theme, fps, metrics);
   cursorY = drawDivider(ctx, cursorY, frame, T, theme);
-  cursorY = drawSummaryCard(ctx, cursorY, storyData['News Summary'], typeConfig.sourceText, frame, T, theme);
-  cursorY = drawCTA(ctx, cursorY, storyData['CTA Text'], typeConfig.ctaEmoji, frame, T, theme);
+  cursorY = drawSummaryCard(ctx, cursorY, storyData['News Summary'], typeConfig.sourceText, frame, T, theme, metrics);
+  cursorY = drawCTA(ctx, cursorY, storyData['CTA Text'], typeConfig.ctaEmoji, frame, T, theme, {}, metrics);
 
   drawDotGrid(ctx, cursorY, frame, T, theme);
-  drawPollSection(ctx, storyData['Poll Question'], frame, T, theme, fps);
+  drawPollSection(ctx, storyData['Poll Question'], frame, T, theme, fps, metrics);
 
   // Visual poll options instead of dashed zone
-  drawVisualPollOptions(ctx, storyData['Poll Options'], frame, T, theme);
+  drawVisualPollOptions(ctx, storyData['Poll Options'], frame, T, theme, metrics);
 
-  drawBranding(ctx, frame, T, theme);
+  drawBranding(ctx, frame, T, theme, metrics);
 }
 
 // ═══════════════════════════════════════════════════════════════

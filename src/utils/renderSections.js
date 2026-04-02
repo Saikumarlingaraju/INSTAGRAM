@@ -190,14 +190,14 @@ export function drawAccentBar(ctx, frame, T, theme) {
 //  §7  BADGE — parameterized text & gradient
 // ═══════════════════════════════════════════════════════════════
 
-export function drawBadge(ctx, cursorY, frame, T, theme, fps, badgeText, gradStart, gradEnd) {
+export function drawBadge(ctx, cursorY, frame, T, theme, fps, badgeText, gradStart, gradEnd, metrics = {}) {
   const badgeS = spring({ frame: frame - T.badge, fps, config: { damping: 12 } });
   if (badgeS <= 0) return;
 
   const startRgb = themeRgb(theme, gradStart || 'warm');
   const endRgb = themeRgb(theme, gradEnd || 'accent');
 
-  ctx.font = `600 22px ${FONT_BODY}`;
+  ctx.font = `600 ${metrics.badgeSize || 22}px ${FONT_BODY}`;
   const badgeW = ctx.measureText(badgeText).width + 28;
   const badgeH = 36;
 
@@ -224,7 +224,7 @@ export function drawBadge(ctx, cursorY, frame, T, theme, fps, badgeText, gradSta
   clearShadow(ctx);
 
   ctx.fillStyle = '#FFFFFF';
-  ctx.font = `600 20px ${FONT_BODY}`;
+  ctx.font = `600 ${Math.max(18, (metrics.badgeSize || 22) - 2)}px ${FONT_BODY}`;
   ctx.fillText(badgeText, PAD + 14, cursorY + 8);
   ctx.restore();
 }
@@ -233,7 +233,7 @@ export function drawBadge(ctx, cursorY, frame, T, theme, fps, badgeText, gradSta
 //  §8  DATE — accepts optional dateStr from sheet
 // ═══════════════════════════════════════════════════════════════
 
-export function drawDate(ctx, cursorY, frame, T, dateStr) {
+export function drawDate(ctx, cursorY, frame, T, dateStr, metrics = {}) {
   const dateAlpha = interpolate(frame - T.date, [0, 10], [0, 1], CLAMP);
   const dateSlide = interpolate(frame - T.date, [0, 10], [30, 0], CLAMP);
   if (dateAlpha <= 0) return;
@@ -243,7 +243,7 @@ export function drawDate(ctx, cursorY, frame, T, dateStr) {
   ctx.translate(0, dateSlide);
   const today = getFormattedDate(dateStr);
   ctx.fillStyle = 'rgba(255,255,255,0.5)';
-  ctx.font = `400 20px ${FONT_BODY}`;
+  ctx.font = `400 ${metrics.dateSize || 20}px ${FONT_BODY}`;
   ctx.textAlign = 'right';
   ctx.fillText(today, W - PAD, cursorY + 8);
   ctx.textAlign = 'left';
@@ -254,9 +254,9 @@ export function drawDate(ctx, cursorY, frame, T, dateStr) {
 //  §9  HEADLINE — word-by-word spring reveal → returns cursorY
 // ═══════════════════════════════════════════════════════════════
 
-export function drawHeadline(ctx, cursorY, text, frame, T, theme, fps) {
-  const headlineSize = 80;
-  const headlineLeading = 88;
+export function drawHeadline(ctx, cursorY, text, frame, T, theme, fps, metrics = {}) {
+  const headlineSize = metrics.headlineSize || 80;
+  const headlineLeading = metrics.headlineLeading || 88;
   const headlineText = (text || '').toUpperCase();
   const headlineWords = headlineText.split(' ');
 
@@ -322,7 +322,7 @@ export function drawDivider(ctx, cursorY, frame, T, theme) {
 //  §11  GLASSMORPHISM SUMMARY CARD → returns cursorY
 // ═══════════════════════════════════════════════════════════════
 
-export function drawSummaryCard(ctx, cursorY, summaryText, sourceText, frame, T, theme) {
+export function drawSummaryCard(ctx, cursorY, summaryText, sourceText, frame, T, theme, metrics = {}) {
   const cardAlpha = interpolate(frame - T.cardReveal, [0, 20], [0, 1], CLAMP);
   const cardSlide = interpolate(frame - T.cardReveal, [0, 20], [40, 0], CLAMP);
 
@@ -332,8 +332,11 @@ export function drawSummaryCard(ctx, cursorY, summaryText, sourceText, frame, T,
   ctx.globalAlpha = cardAlpha;
   ctx.translate(0, cardSlide);
 
-  ctx.font = `400 34px ${FONT_BODY}`;
-  const summaryH = measureWrappedHeight(ctx, summaryText, CONTENT_W - 60, 48);
+  const summarySize = metrics.summarySize || 34;
+  const summaryLineHeight = metrics.summaryLineHeight || 48;
+
+  ctx.font = `400 ${summarySize}px ${FONT_BODY}`;
+  const summaryH = measureWrappedHeight(ctx, summaryText, CONTENT_W - 60, summaryLineHeight);
   const cardPadV = 20;
   const cardH = cardPadV + summaryH + cardPadV;
 
@@ -362,8 +365,8 @@ export function drawSummaryCard(ctx, cursorY, summaryText, sourceText, frame, T,
   const textAlpha = interpolate(frame - T.summaryText, [0, 25], [0, 1], CLAMP);
   setShadow(ctx, 6, 0.4);
   ctx.fillStyle = `rgba(230, 235, 245, ${0.95 * textAlpha})`;
-  ctx.font = `400 34px ${FONT_BODY}`;
-  wrapText(ctx, summaryText, PAD + 22, cursorY + cardPadV, CONTENT_W - 60, 48);
+  ctx.font = `400 ${summarySize}px ${FONT_BODY}`;
+  wrapText(ctx, summaryText, PAD + 22, cursorY + cardPadV, CONTENT_W - 60, summaryLineHeight);
   clearShadow(ctx);
 
   const cardBottomY = cursorY + cardH;
@@ -376,7 +379,7 @@ export function drawSummaryCard(ctx, cursorY, summaryText, sourceText, frame, T,
     ctx.globalAlpha = cardAlpha * srcAlpha;
     ctx.translate(0, srcSlide);
     ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
-    ctx.font = `italic 400 20px ${FONT_BODY}`;
+    ctx.font = `italic 400 ${metrics.sourceSize || 20}px ${FONT_BODY}`;
     ctx.fillText(sourceText, PAD + 22, outY);
   }
   outY += 35;
@@ -390,7 +393,7 @@ export function drawSummaryCard(ctx, cursorY, summaryText, sourceText, frame, T,
 //  §11b  DUAL CARD (myth/fact or comparison) → returns cursorY
 // ═══════════════════════════════════════════════════════════════
 
-export function drawDualCard(ctx, cursorY, part1, part2, label1, label2, color1Rgb, color2Rgb, frame, T) {
+export function drawDualCard(ctx, cursorY, part1, part2, label1, label2, color1Rgb, color2Rgb, frame, T, metrics = {}) {
   const cardAlpha = interpolate(frame - T.cardReveal, [0, 20], [0, 1], CLAMP);
   const cardSlide = interpolate(frame - T.cardReveal, [0, 20], [40, 0], CLAMP);
 
@@ -404,9 +407,12 @@ export function drawDualCard(ctx, cursorY, part1, part2, label1, label2, color1R
   const textAlpha = interpolate(frame - T.summaryText, [0, 25], [0, 1], CLAMP);
 
   // Measure both parts
-  ctx.font = `400 30px ${FONT_BODY}`;
-  const part1H = measureWrappedHeight(ctx, part1, CONTENT_W - 70, 42);
-  const part2H = measureWrappedHeight(ctx, part2, CONTENT_W - 70, 42);
+  const dualSize = metrics.dualCardSize || 30;
+  const dualLineHeight = metrics.dualCardLineHeight || 42;
+
+  ctx.font = `400 ${dualSize}px ${FONT_BODY}`;
+  const part1H = measureWrappedHeight(ctx, part1, CONTENT_W - 70, dualLineHeight);
+  const part2H = measureWrappedHeight(ctx, part2, CONTENT_W - 70, dualLineHeight);
 
   const labelH = 30;
   const gap = 14;
@@ -426,13 +432,13 @@ export function drawDualCard(ctx, cursorY, part1, part2, label1, label2, color1R
 
   // Card 1 label
   ctx.fillStyle = `rgba(${color1Rgb}, 0.9)`;
-  ctx.font = `700 22px ${FONT_BODY}`;
+  ctx.font = `700 ${Math.max(18, dualSize - 8)}px ${FONT_BODY}`;
   ctx.fillText(label1, PAD + 16, cursorY + cardPadV);
 
   // Card 1 text
   ctx.fillStyle = `rgba(230, 235, 245, ${0.95 * textAlpha})`;
-  ctx.font = `400 30px ${FONT_BODY}`;
-  wrapText(ctx, part1, PAD + 16, cursorY + cardPadV + labelH + 6, CONTENT_W - 70, 42);
+  ctx.font = `400 ${dualSize}px ${FONT_BODY}`;
+  wrapText(ctx, part1, PAD + 16, cursorY + cardPadV + labelH + 6, CONTENT_W - 70, dualLineHeight);
 
   cursorY += card1TotalH + gap;
 
@@ -449,13 +455,13 @@ export function drawDualCard(ctx, cursorY, part1, part2, label1, label2, color1R
 
   // Card 2 label
   ctx.fillStyle = `rgba(${color2Rgb}, 0.9)`;
-  ctx.font = `700 22px ${FONT_BODY}`;
+  ctx.font = `700 ${Math.max(18, dualSize - 8)}px ${FONT_BODY}`;
   ctx.fillText(label2, PAD + 16, cursorY + cardPadV);
 
   // Card 2 text
   ctx.fillStyle = `rgba(230, 235, 245, ${0.95 * textAlpha})`;
-  ctx.font = `400 30px ${FONT_BODY}`;
-  wrapText(ctx, part2, PAD + 16, cursorY + cardPadV + labelH + 6, CONTENT_W - 70, 42);
+  ctx.font = `400 ${dualSize}px ${FONT_BODY}`;
+  wrapText(ctx, part2, PAD + 16, cursorY + cardPadV + labelH + 6, CONTENT_W - 70, dualLineHeight);
 
   cursorY += card2TotalH + 12;
 
@@ -468,7 +474,7 @@ export function drawDualCard(ctx, cursorY, part1, part2, label1, label2, color1R
 //  §CTA  CALL TO ACTION — rendered on canvas
 // ═══════════════════════════════════════════════════════════════
 
-export function drawCTA(ctx, cursorY, ctaText, ctaEmoji, frame, T, theme, opts = {}) {
+export function drawCTA(ctx, cursorY, ctaText, ctaEmoji, frame, T, theme, opts = {}, metrics = {}) {
   if (!ctaText) return cursorY;
 
   const ctaFrame = T.source + 10; // appears shortly after source
@@ -486,7 +492,8 @@ export function drawCTA(ctx, cursorY, ctaText, ctaEmoji, frame, T, theme, opts =
 
   if (isProminent) {
     // Prominent CTA: full-width gradient pill
-    ctx.font = `600 28px ${FONT_BODY}`;
+    const ctaPillSize = metrics.ctaPillSize || 28;
+    ctx.font = `600 ${ctaPillSize}px ${FONT_BODY}`;
     const textW = ctx.measureText(fullText).width;
     const pillW = Math.min(textW + 48, CONTENT_W);
     const pillH = 52;
@@ -506,7 +513,7 @@ export function drawCTA(ctx, cursorY, ctaText, ctaEmoji, frame, T, theme, opts =
     clearShadow(ctx);
 
     ctx.fillStyle = '#FFFFFF';
-    ctx.font = `600 26px ${FONT_BODY}`;
+    ctx.font = `600 ${Math.max(18, ctaPillSize - 2)}px ${FONT_BODY}`;
     ctx.textAlign = 'center';
     ctx.fillText(fullText, W / 2, cursorY + 14);
     ctx.textAlign = 'left';
@@ -514,7 +521,8 @@ export function drawCTA(ctx, cursorY, ctaText, ctaEmoji, frame, T, theme, opts =
     cursorY += pillH + 14;
   } else {
     // Subtle CTA: small text with accent color
-    ctx.font = `500 24px ${FONT_BODY}`;
+    const ctaSize = metrics.ctaSize || 24;
+    ctx.font = `500 ${ctaSize}px ${FONT_BODY}`;
     ctx.fillStyle = `rgba(${theme.accentRgb}, 0.85)`;
     ctx.fillText(fullText, PAD + 22, cursorY);
     cursorY += 36;
@@ -574,7 +582,7 @@ export function drawDotGrid(ctx, cursorY, frame, T, theme) {
 //  §13-14  POLL SECTION + POLL ZONE
 // ═══════════════════════════════════════════════════════════════
 
-export function drawPollSection(ctx, pollQ, frame, T, theme, fps) {
+export function drawPollSection(ctx, pollQ, frame, T, theme, fps, metrics = {}) {
   if (!pollQ) return;
 
   // Dark band
@@ -584,8 +592,11 @@ export function drawPollSection(ctx, pollQ, frame, T, theme, fps) {
   ctx.save();
   ctx.globalAlpha = pollBandAlpha;
 
-  ctx.font = `600 36px ${FONT_BODY}`;
-  const pollQHeight = measureWrappedHeight(ctx, pollQ, CONTENT_W, 46);
+  const pollQuestionSize = metrics.pollQuestionSize || 36;
+  const pollQuestionLineHeight = metrics.pollQuestionLineHeight || 46;
+
+  ctx.font = `600 ${pollQuestionSize}px ${FONT_BODY}`;
+  const pollQHeight = measureWrappedHeight(ctx, pollQ, CONTENT_W, pollQuestionLineHeight);
   const pollBadgeH = 32;
   const gapAfterBadge = 12;
   const totalPollBlock = pollBadgeH + gapAfterBadge + pollQHeight;
@@ -608,7 +619,7 @@ export function drawPollSection(ctx, pollQ, frame, T, theme, fps) {
     ctx.fill();
     clearShadow(ctx);
     ctx.fillStyle = '#FFFFFF';
-    ctx.font = `700 18px ${FONT_BODY}`;
+    ctx.font = `700 ${Math.max(16, pollQuestionSize - 16)}px ${FONT_BODY}`;
     ctx.fillText('📊 POLL', PAD + 12, pollBlockStartY + 7);
     ctx.restore();
   }
@@ -622,15 +633,15 @@ export function drawPollSection(ctx, pollQ, frame, T, theme, fps) {
     ctx.translate(0, pollQSlide);
     setShadow(ctx, 8, 0.5);
     ctx.fillStyle = '#FFFFFF';
-    ctx.font = `600 36px ${FONT_BODY}`;
-    wrapText(ctx, pollQ, PAD, pollBlockStartY + pollBadgeH + gapAfterBadge, CONTENT_W, 46);
+    ctx.font = `600 ${pollQuestionSize}px ${FONT_BODY}`;
+    wrapText(ctx, pollQ, PAD, pollBlockStartY + pollBadgeH + gapAfterBadge, CONTENT_W, pollQuestionLineHeight);
     clearShadow(ctx);
     ctx.restore();
   }
 }
 
 // ── Poll zone (dashed outline + pulse) ──
-export function drawPollZone(ctx, frame, T, theme) {
+export function drawPollZone(ctx, frame, T, theme, metrics = {}) {
   const pzAlpha = interpolate(frame - T.pollZone, [0, 20], [0, 1], CLAMP);
   if (pzAlpha <= 0) return;
 
@@ -652,7 +663,7 @@ export function drawPollZone(ctx, frame, T, theme) {
   // Pulsing "Tap to Vote"
   const pulse = interpolate(frame % 30, [0, 15, 30], [1, 1.1, 1]);
   ctx.fillStyle = 'rgba(255,255,255,0.12)';
-  ctx.font = `700 28px ${FONT_BODY}`;
+  ctx.font = `700 ${Math.max(22, metrics.pollQuestionSize ? metrics.pollQuestionSize - 8 : 28)}px ${FONT_BODY}`;
   ctx.textAlign = 'center';
 
   const tapY = (POLL_ZONE_TOP + POLL_ZONE_BOTTOM) / 2;
@@ -663,7 +674,7 @@ export function drawPollZone(ctx, frame, T, theme) {
   ctx.restore();
 
   ctx.fillStyle = 'rgba(255,255,255,0.07)';
-  ctx.font = `400 22px ${FONT_BODY}`;
+  ctx.font = `400 ${Math.max(16, metrics.dateSize ? metrics.dateSize + 2 : 22)}px ${FONT_BODY}`;
   ctx.fillText('Add Instagram Poll Sticker Here', W / 2, tapY + 18);
   ctx.textAlign = 'left';
 
@@ -674,7 +685,7 @@ export function drawPollZone(ctx, frame, T, theme) {
 //  §14b  VISUAL POLL OPTIONS (for debate layout)
 // ═══════════════════════════════════════════════════════════════
 
-export function drawVisualPollOptions(ctx, pollOptions, frame, T, theme) {
+export function drawVisualPollOptions(ctx, pollOptions, frame, T, theme, metrics = {}) {
   if (!pollOptions) return;
 
   const options = pollOptions.split('|').map(o => o.trim()).filter(o => o.length > 0).slice(0, 4);
@@ -687,7 +698,7 @@ export function drawVisualPollOptions(ctx, pollOptions, frame, T, theme) {
   ctx.globalAlpha = pzAlpha;
   clearShadow(ctx);
 
-  const chipH = 48;
+  const chipH = metrics.pollOptionChipHeight || 48;
   const chipGap = 12;
   const totalH = options.length * chipH + (options.length - 1) * chipGap;
   const startY = POLL_ZONE_TOP + (POLL_ZONE_BOTTOM - POLL_ZONE_TOP - totalH) / 2;
@@ -716,9 +727,9 @@ export function drawVisualPollOptions(ctx, pollOptions, frame, T, theme) {
 
     // Chip text
     ctx.fillStyle = '#FFFFFF';
-    ctx.font = `500 24px ${FONT_BODY}`;
+    ctx.font = `500 ${metrics.pollOptionSize || 24}px ${FONT_BODY}`;
     ctx.textAlign = 'center';
-    ctx.fillText(opt, W / 2, chipY + 14);
+    ctx.fillText(opt, W / 2, chipY + Math.max(12, (chipH / 2) - 4));
     ctx.textAlign = 'left';
 
     ctx.restore();
@@ -731,7 +742,7 @@ export function drawVisualPollOptions(ctx, pollOptions, frame, T, theme) {
 //  §15  BOTTOM BRANDING
 // ═══════════════════════════════════════════════════════════════
 
-export function drawBranding(ctx, frame, T, theme) {
+export function drawBranding(ctx, frame, T, theme, metrics = {}) {
   const brandAlpha = interpolate(frame - T.branding, [0, 15], [0, 1], CLAMP);
   const brandSlide = interpolate(frame - T.branding, [0, 15], [30, 0], CLAMP);
   if (brandAlpha <= 0) return;
@@ -749,7 +760,7 @@ export function drawBranding(ctx, frame, T, theme) {
   ctx.fillRect(W / 2 - 80, POLL_ZONE_BOTTOM + 15, 160, 1);
 
   ctx.fillStyle = 'rgba(255,255,255,0.20)';
-  ctx.font = `500 18px ${FONT_BODY}`;
+  ctx.font = `500 ${metrics.dateSize || 18}px ${FONT_BODY}`;
   ctx.textAlign = 'center';
   ctx.fillText('HITAM AI  •  Powered by AI', W / 2, POLL_ZONE_BOTTOM + 28);
   ctx.textAlign = 'left';

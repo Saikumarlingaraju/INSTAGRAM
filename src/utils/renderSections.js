@@ -762,7 +762,7 @@ export function drawBranding(ctx, frame, T, theme, metrics = {}) {
   ctx.fillStyle = 'rgba(255,255,255,0.20)';
   ctx.font = `500 ${metrics.dateSize || 18}px ${FONT_BODY}`;
   ctx.textAlign = 'center';
-  ctx.fillText('HITAM AI  •  Powered by AI', W / 2, POLL_ZONE_BOTTOM + 28);
+  ctx.fillText('HITAM AI', W / 2, POLL_ZONE_BOTTOM + 28);
   ctx.textAlign = 'left';
 
   ctx.restore();

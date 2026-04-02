@@ -27,9 +27,7 @@ import {
   drawDualCard,
   drawCTA,
   drawDotGrid,
-  drawPollSection,
   drawPollZone,
-  drawVisualPollOptions,
   drawBranding,
   drawVsSeparator,
 } from './renderSections.js';
@@ -58,7 +56,7 @@ const T = {
 //  DEFAULT LAYOUT — ai_news
 //
 //  The original layout: badge → headline → divider → summary card
-//  → source → CTA → dot grid → poll → branding
+//  → source → CTA → dot grid → poll zone → branding
 // ═══════════════════════════════════════════════════════════════
 
 function layoutDefault({ ctx, img, cropRect, storyData, theme, frame, fps, typeConfig }) {
@@ -81,7 +79,6 @@ function layoutDefault({ ctx, img, cropRect, storyData, theme, frame, fps, typeC
   cursorY = drawCTA(ctx, cursorY, storyData['CTA Text'], typeConfig.ctaEmoji, frame, T, theme, {}, metrics);
 
   drawDotGrid(ctx, cursorY, frame, T, theme);
-  drawPollSection(ctx, storyData['Poll Question'], frame, T, theme, fps, metrics);
   drawPollZone(ctx, frame, T, theme, metrics);
   drawBranding(ctx, frame, T, theme, metrics);
 }
@@ -137,7 +134,6 @@ function layoutComparison({ ctx, img, cropRect, storyData, theme, frame, fps, ty
   cursorY = drawCTA(ctx, cursorY, storyData['CTA Text'], typeConfig.ctaEmoji, frame, T, theme, {}, metrics);
 
   drawDotGrid(ctx, cursorY, frame, T, theme);
-  drawPollSection(ctx, storyData['Poll Question'], frame, T, theme, fps, metrics);
   drawPollZone(ctx, frame, T, theme, metrics);
   drawBranding(ctx, frame, T, theme, metrics);
 }
@@ -170,7 +166,6 @@ function layoutSpotlight({ ctx, img, cropRect, storyData, theme, frame, fps, typ
   cursorY = drawCTA(ctx, cursorY, storyData['CTA Text'], typeConfig.ctaEmoji, frame, T, theme, { prominent: true }, metrics);
 
   drawDotGrid(ctx, cursorY, frame, T, theme);
-  drawPollSection(ctx, storyData['Poll Question'], frame, T, theme, fps, metrics);
   drawPollZone(ctx, frame, T, theme, metrics);
   drawBranding(ctx, frame, T, theme, metrics);
 }
@@ -223,8 +218,7 @@ function layoutMythFact({ ctx, img, cropRect, storyData, theme, frame, fps, type
   cursorY = drawCTA(ctx, cursorY, storyData['CTA Text'], typeConfig.ctaEmoji, frame, T, theme, {}, metrics);
 
   drawDotGrid(ctx, cursorY, frame, T, theme);
-  drawPollSection(ctx, storyData['Poll Question'], frame, T, theme, fps, metrics);
-  drawPollZone(ctx, frame, T, theme);
+  drawPollZone(ctx, frame, T, theme, metrics);
   drawBranding(ctx, frame, T, theme, metrics);
 }
 
@@ -255,10 +249,7 @@ function layoutDebate({ ctx, img, cropRect, storyData, theme, frame, fps, typeCo
   cursorY = drawCTA(ctx, cursorY, storyData['CTA Text'], typeConfig.ctaEmoji, frame, T, theme, {}, metrics);
 
   drawDotGrid(ctx, cursorY, frame, T, theme);
-  drawPollSection(ctx, storyData['Poll Question'], frame, T, theme, fps, metrics);
-
-  // Visual poll options instead of dashed zone
-  drawVisualPollOptions(ctx, storyData['Poll Options'], frame, T, theme, metrics);
+  drawPollZone(ctx, frame, T, theme, metrics);
 
   drawBranding(ctx, frame, T, theme, metrics);
 }
